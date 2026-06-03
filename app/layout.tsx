@@ -1,5 +1,5 @@
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import AppShell from "@/components/AppShell";
 
 export const metadata = {
   title: "Planaris Gestión",
@@ -12,15 +12,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+        <html lang="es">
       <body>
-        <main className="min-h-screen bg-zinc-100 flex">
-          <Sidebar />
-
-          <section className="flex-1 p-10">
-            {children}
-          </section>
-        </main>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
