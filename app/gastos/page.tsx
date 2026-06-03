@@ -2,6 +2,8 @@ import { supabase } from "@/lib/supabase";
 import GastoForm from "@/components/gastos/GastoForm";
 import GastosResumen from "@/components/gastos/GastosResumen";
 import GastosHistorial from "@/components/gastos/GastosHistorial";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function GastosPage() {
   const { data: gastos } = await supabase
