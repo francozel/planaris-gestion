@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/AuthProvider";
+import { getAccessToken } from "@/lib/client-auth";
 
 type Usuario = {
   id: string;
@@ -14,6 +16,7 @@ type CategoriaGasto = {
 };
 
 export default function GastoForm() {
+  const { session } = useAuth();
   const [abierto, setAbierto] = useState(false);
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -31,16 +34,24 @@ export default function GastoForm() {
   const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
 
   const cargarDatos = useCallback(async () => {
-    const { data: usuariosData } = await supabase.from("usuarios").select("*");
+    const accessToken = session?.access_token || (await getAccessToken());
+    const usuariosResponse = accessToken
+      ? await fetch("/api/usuarios", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+      : null;
+    const usuariosResult = usuariosResponse
+      ? ((await usuariosResponse.json()) as { data?: Usuario[] })
+      : { data: [] };
 
     const { data: categoriasData } = await supabase
       .from("categorias_gastos")
       .select("*")
       .order("nombre");
 
-    setUsuarios((usuariosData || []) as Usuario[]);
+    setUsuarios((usuariosResult.data || []) as Usuario[]);
     setCategorias((categoriasData || []) as CategoriaGasto[]);
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -53,8 +64,21 @@ export default function GastoForm() {
     const otros = Number(otrosImpuestos || 0);
     const total = neto + ivaNum + otros;
 
-    const { error } = await supabase.from("gastos").insert({
-      usuario_id: usuarioId,
+    const accessToken = session?.access_token || (await getAccessToken());
+
+    if (!accessToken) {
+      alert("No se encontro una sesion activa");
+      return;
+    }
+
+    const response = await fetch("/api/gastos", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+      usuario_id: usuarioId === "__proveedores" ? null : usuarioId,
       categoria,
       descripcion,
       proveedor,
@@ -65,10 +89,12 @@ export default function GastoForm() {
       otros_impuestos: otros,
       importe_total: total,
       fecha,
+      }),
     });
+    const result = (await response.json()) as { error?: string };
 
-    if (error) {
-      alert(error.message);
+    if (!response.ok) {
+      alert(result.error || "No se pudo guardar el gasto");
       return;
     }
 
@@ -92,6 +118,7 @@ export default function GastoForm() {
           <div className="grid grid-cols-3 gap-4">
             <select value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)} className="border rounded-xl p-3">
               <option value="">Seleccionar usuario</option>
+              <option value="__proveedores">Proveedores / Planaris</option>
               {usuarios.map((u) => (
                 <option key={u.id} value={u.id}>{u.nombre || "Sin nombre"}</option>
               ))}

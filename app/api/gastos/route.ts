@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSocioActor } from "@/lib/api-auth";
+import { getActorWithRoles, getSocioActor } from "@/lib/api-auth";
 
 type GastoBody = {
   id?: string;
+  usuario_id?: string | null;
   fecha?: string;
   categoria?: string;
   descripcion?: string;
@@ -15,6 +16,59 @@ type GastoBody = {
   importe_total?: number;
   estado?: string;
 };
+
+function gastoPayload(body: GastoBody) {
+  const neto = Number(body.importe_neto || 0);
+  const iva = Number(body.iva || 0);
+  const otros = Number(body.otros_impuestos || 0);
+
+  return {
+    usuario_id: body.usuario_id || null,
+    fecha: body.fecha,
+    categoria: body.categoria?.trim() || "",
+    descripcion: body.descripcion?.trim() || "",
+    proveedor: body.proveedor?.trim() || "",
+    cuit: body.cuit?.trim() || "",
+    tipo_comprobante: body.tipo_comprobante || "Sin comprobante",
+    importe_neto: neto,
+    iva,
+    otros_impuestos: otros,
+    importe_total: neto + iva + otros,
+    estado: body.estado || "Pendiente",
+  };
+}
+
+export async function POST(request: Request) {
+  const auth = await getActorWithRoles(request, [
+    "socio",
+    "administracion",
+    "usuario",
+  ]);
+
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const payload = {
+    ...gastoPayload((await request.json()) as GastoBody),
+    reintegrado: false,
+  };
+
+  if (!payload.fecha || payload.importe_total <= 0) {
+    return NextResponse.json(
+      { error: "Fecha e importe son obligatorios" },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await auth.supabaseAdmin.from("gastos").insert(payload);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
 
 export async function PUT(request: Request) {
   const auth = await getSocioActor(request);
@@ -29,25 +83,11 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "ID requerido" }, { status: 400 });
   }
 
-  const neto = Number(body.importe_neto || 0);
-  const iva = Number(body.iva || 0);
-  const otros = Number(body.otros_impuestos || 0);
+  const payload = gastoPayload(body);
 
   const { data, error } = await auth.supabaseAdmin
     .from("gastos")
-    .update({
-      fecha: body.fecha,
-      categoria: body.categoria?.trim() || "",
-      descripcion: body.descripcion?.trim() || "",
-      proveedor: body.proveedor?.trim() || "",
-      cuit: body.cuit?.trim() || "",
-      tipo_comprobante: body.tipo_comprobante || "Sin comprobante",
-      importe_neto: neto,
-      iva,
-      otros_impuestos: otros,
-      importe_total: neto + iva + otros,
-      estado: body.estado || "Pendiente",
-    })
+    .update(payload)
     .eq("id", body.id)
     .select("id")
     .maybeSingle();

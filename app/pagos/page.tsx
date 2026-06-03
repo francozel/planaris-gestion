@@ -6,6 +6,7 @@ import PeriodSelector from "@/components/PeriodSelector";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
 import { canManageRecords } from "@/lib/permissions";
+import { isCreditNote, signedAmount } from "@/lib/accounting";
 import { getAccessToken } from "@/lib/client-auth";
 import {
   matchesPeriod,
@@ -17,6 +18,7 @@ import {
 type Compra = {
   id: string;
   fecha: string;
+  tipo_comprobante: string | null;
   numero_comprobante: string | null;
   razon_social: string | null;
   proveedor: string | null;
@@ -106,7 +108,7 @@ export default function PagosPage() {
     const [comprasResult, gastosResult, pagosResponse, usuariosResponse] = await Promise.all([
       supabase
         .from("compras")
-        .select("id, fecha, numero_comprobante, razon_social, proveedor, importe, estado")
+        .select("id, fecha, tipo_comprobante, numero_comprobante, razon_social, proveedor, importe, estado")
         .neq("estado", "Pagada")
         .order("fecha", { ascending: false }),
       supabase
@@ -158,9 +160,12 @@ export default function PagosPage() {
     void cargarDatos();
   }, [cargarDatos]);
 
-  const gastosPendientes = usuarioGastoId
-    ? gastos.filter((gasto) => gasto.usuario_id === usuarioGastoId)
-    : gastos;
+  const gastosPendientes =
+    usuarioGastoId === "__proveedores"
+      ? gastos.filter((gasto) => !gasto.usuario_id)
+      : usuarioGastoId
+      ? gastos.filter((gasto) => gasto.usuario_id === usuarioGastoId)
+      : [];
   const pendientes = tipo === "compra" ? compras : gastosPendientes;
   const seleccionado = useMemo(() => {
     return pendientes.find((item) => item.id === referenciaId) || null;
@@ -168,7 +173,10 @@ export default function PagosPage() {
 
   const importeSeleccionado =
     tipo === "compra"
-      ? Number((seleccionado as Compra | null)?.importe || 0)
+      ? signedAmount(
+          (seleccionado as Compra | null)?.tipo_comprobante,
+          Number((seleccionado as Compra | null)?.importe || 0)
+        )
       : Number((seleccionado as Gasto | null)?.importe_total || 0);
   const totalImputado = imputaciones.reduce(
     (acc, imputacion) => acc + imputacion.importe,
@@ -176,7 +184,8 @@ export default function PagosPage() {
   );
 
   const totalPendienteCompras = compras.reduce(
-    (acc, compra) => acc + Number(compra.importe || 0),
+    (acc, compra) =>
+      acc + signedAmount(compra.tipo_comprobante, Number(compra.importe || 0)),
     0
   );
   const totalPendienteGastos = gastos.reduce(
@@ -201,9 +210,13 @@ export default function PagosPage() {
   function nombreReferencia(item: Compra | Gasto) {
     if (tipo === "compra") {
       const compra = item as Compra;
-      return `${compra.razon_social || compra.proveedor || "Proveedor"} - ${
-        compra.numero_comprobante || "Sin comprobante"
-      }`;
+      const prefijo = isCreditNote(compra.tipo_comprobante)
+        ? "Nota de credito"
+        : "Factura";
+
+      return `${prefijo} - ${
+        compra.razon_social || compra.proveedor || "Proveedor"
+      } - ${compra.numero_comprobante || "Sin comprobante"}`;
     }
 
     const gasto = item as Gasto;
@@ -547,7 +560,8 @@ export default function PagosPage() {
               setReferenciaId("");
             }}
           >
-            <option value="">Seleccionar usuario para ver gastos pendientes</option>
+            <option value="">Seleccionar origen del gasto</option>
+            <option value="__proveedores">Proveedores / Planaris</option>
             {usuarios.map((usuario) => (
               <option key={usuario.id} value={usuario.id}>
                 {usuario.nombre || usuario.email || "Usuario"}
@@ -567,7 +581,10 @@ export default function PagosPage() {
               {nombreReferencia(item)} - $
               {Number(
                 tipo === "compra"
-                  ? (item as Compra).importe || 0
+                  ? signedAmount(
+                      (item as Compra).tipo_comprobante,
+                      Number((item as Compra).importe || 0)
+                    )
                   : (item as Gasto).importe_total || 0
               ).toLocaleString("es-AR")}
             </option>

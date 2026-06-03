@@ -70,6 +70,34 @@ export default function UsuariosPage() {
     await cargarUsuarios();
   }
 
+  async function restablecerPassword(usuario: Usuario) {
+    if (!puedeGestionar) return;
+
+    const confirmado = confirm(
+      `Enviar email de restablecimiento a ${usuario.email}?`
+    );
+
+    if (!confirmado) return;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/usuarios", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token || ""}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: usuario.email }),
+    });
+    const result = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      alert(result.error || "No se pudo enviar el restablecimiento");
+      return;
+    }
+
+    alert("Email de restablecimiento enviado");
+  }
+
   return (
     <div>
       <div className="mb-10">
@@ -112,12 +140,20 @@ export default function UsuariosPage() {
                     </td>
                     {puedeGestionar && (
                       <td className="p-4">
-                        <button
-                          onClick={() => eliminarUsuario(usuario)}
-                          className="border rounded px-3 py-1 text-red-600"
-                        >
-                          Eliminar
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => restablecerPassword(usuario)}
+                            className="border rounded px-3 py-1"
+                          >
+                            Restablecer contraseña
+                          </button>
+                          <button
+                            onClick={() => eliminarUsuario(usuario)}
+                            className="border rounded px-3 py-1 text-red-600"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>

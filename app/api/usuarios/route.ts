@@ -10,6 +10,10 @@ type CreateUserBody = {
   rol?: UserRole;
 };
 
+type ResetPasswordBody = {
+  email?: string;
+};
+
 export async function GET(request: Request) {
   const auth = await getActorWithRoles(request, [
     "socio",
@@ -109,6 +113,34 @@ export async function POST(request: Request) {
 
   if (userError) {
     return NextResponse.json({ error: userError.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(request: Request) {
+  const auth = await getActorWithRoles(request, ["socio", "administracion"]);
+
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const body = (await request.json()) as ResetPasswordBody;
+  const email = body.email?.trim().toLowerCase();
+
+  if (!email) {
+    return NextResponse.json({ error: "Email requerido" }, { status: 400 });
+  }
+
+  const redirectTo = process.env.NEXT_PUBLIC_SITE_URL
+    ? `${process.env.NEXT_PUBLIC_SITE_URL}/login`
+    : undefined;
+  const { error } = await auth.supabaseAdmin.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });

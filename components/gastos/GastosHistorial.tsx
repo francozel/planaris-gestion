@@ -280,7 +280,9 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
           {gastos.map((gasto) => (
             <tr key={gasto.id} className="border-t">
               <td className="p-4">{gasto.fecha}</td>
-              <td className="p-4">{gasto.usuarios?.nombre || "Sin usuario"}</td>
+              <td className="p-4">
+                {gasto.usuarios?.nombre || "Proveedores / Planaris"}
+              </td>
               <td className="p-4">{gasto.categoria}</td>
               <td className="p-4">{gasto.proveedor || "-"}</td>
               <td className="p-4">{gasto.tipo_comprobante || "-"}</td>

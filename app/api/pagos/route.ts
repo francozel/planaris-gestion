@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { signedAmount } from "@/lib/accounting";
 import { getActorWithRoles, getSocioActor } from "@/lib/api-auth";
 
 type PagoBody = {
@@ -43,17 +44,27 @@ async function actualizarReferencia(
   if (tipo === "compra") {
     const { data: compra, error: refError } = await supabaseAdmin
       .from("compras")
-      .select("id, importe")
+      .select("id, tipo_comprobante, importe")
       .eq("id", referenciaId)
       .maybeSingle();
 
     if (refError) return refError.message;
     if (!compra) return "No se encontro la referencia";
 
-    const total = Number(compra.importe || 0);
+    const total = Math.abs(
+      signedAmount(compra.tipo_comprobante, Number(compra.importe || 0))
+    );
+    const pagadoAbs = Math.abs(pagado);
     const { error } = await supabaseAdmin
       .from("compras")
-      .update({ estado: pagado >= total ? "Pagada" : pagado > 0 ? "Parcial" : "Pendiente" })
+      .update({
+        estado:
+          pagadoAbs >= total
+            ? "Pagada"
+            : pagadoAbs > 0
+            ? "Parcial"
+            : "Pendiente",
+      })
       .eq("id", referenciaId);
 
     return error?.message || null;
