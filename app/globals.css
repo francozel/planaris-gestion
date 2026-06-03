@@ -25,12 +25,71 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .metric-number {
   font-size: clamp(1.2rem, 1.8vw, 1.875rem);
   font-weight: 700;
   line-height: 1.1;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+@media (max-width: 767px) {
+  .app-content {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .app-content h1 {
+    font-size: 2rem;
+    line-height: 1.1;
+  }
+
+  .app-content h2 {
+    font-size: 1.25rem;
+    line-height: 1.2;
+  }
+
+  .app-content .grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-content .flex {
+    flex-wrap: wrap;
+  }
+
+  .app-content input,
+  .app-content select,
+  .app-content textarea {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .app-content button,
+  .app-content a {
+    max-width: 100%;
+  }
+
+  .app-content table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .app-content th,
+  .app-content td {
+    padding: 0.75rem;
+  }
 }
 
 @media print {

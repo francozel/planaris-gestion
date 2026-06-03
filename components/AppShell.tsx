@@ -43,10 +43,12 @@ function ShellContent({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-100 flex">
+    <main className="app-shell min-h-screen bg-zinc-100 flex flex-col md:flex-row">
       <Sidebar />
 
-      <section className="flex-1 p-10">{children}</section>
+      <section className="app-content flex-1 min-w-0 p-4 md:p-10">
+        {children}
+      </section>
     </main>
   );
 }

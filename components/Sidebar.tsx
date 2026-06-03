@@ -41,8 +41,8 @@ export default function Sidebar() {
   );
 
   return (
-    <aside className="w-64 bg-black text-white p-6 flex flex-col">
-      <div className="mb-10">
+    <aside className="w-full md:w-64 bg-black text-white p-3 md:p-6 flex flex-col md:min-h-screen md:sticky md:top-0">
+      <div className="hidden md:block mb-10">
         <img
   src="/logo-planaris.png"
   alt="Planaris"
@@ -50,7 +50,7 @@ export default function Sidebar() {
 />
       </div>
 
-      <nav className="flex flex-col gap-3">
+      <nav className="flex md:flex-col gap-2 md:gap-3 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
         {visibleItems.map((item) => {
           const Icon = item.icon;
 
@@ -58,7 +58,7 @@ export default function Sidebar() {
             <Link
               key={item.label}
               href={item.href}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-zinc-800 transition"
+              className="flex flex-none items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-3 rounded-lg md:rounded-xl hover:bg-zinc-800 transition text-sm md:text-base"
             >
               <Icon size={20} />
               {item.label}
@@ -68,7 +68,22 @@ export default function Sidebar() {
       </nav>
 
       {user && (
-        <div className="mt-auto pt-6 border-t border-zinc-800">
+        <div className="md:hidden flex items-center justify-between gap-3 pt-3 border-t border-zinc-800">
+          <div className="min-w-0">
+            <p className="font-semibold truncate">{user.nombre}</p>
+            <p className="text-xs text-zinc-400">{roleLabels[user.rol]}</p>
+          </div>
+          <button
+            onClick={signOut}
+            className="flex-none border border-zinc-700 rounded-lg px-3 py-2 text-sm hover:bg-zinc-800 transition"
+          >
+            Salir
+          </button>
+        </div>
+      )}
+
+      {user && (
+        <div className="hidden md:block mt-auto pt-6 border-t border-zinc-800">
           <p className="font-semibold">{user.nombre}</p>
           <p className="text-sm text-zinc-400">{roleLabels[user.rol]}</p>
           <p className="text-xs text-zinc-500 mt-1">
