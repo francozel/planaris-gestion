@@ -50,6 +50,7 @@ type Pago = {
   observaciones: string | null;
   banco?: string | null;
   numero_cheque?: string | null;
+  fecha_emision?: string | null;
   fecha_pago?: string | null;
 };
 
@@ -66,6 +67,17 @@ type Usuario = {
   nombre: string | null;
   email: string | null;
   activo: boolean | null;
+};
+
+type PagoEdit = {
+  fecha: string;
+  medio_pago: string;
+  importe: string;
+  banco: string;
+  numero_cheque: string;
+  fecha_emision: string;
+  fecha_pago: string;
+  observaciones: string;
 };
 
 const hoy = () => new Date().toISOString().split("T")[0];
@@ -97,6 +109,18 @@ export default function PagosPage() {
   const [fechaEmision, setFechaEmision] = useState(hoy());
   const [fechaPago, setFechaPago] = useState(hoy());
   const [imputaciones, setImputaciones] = useState<ImputacionPago[]>([]);
+  const [importeManual, setImporteManual] = useState("");
+  const [editandoPagoId, setEditandoPagoId] = useState("");
+  const [pagoEdit, setPagoEdit] = useState<PagoEdit>({
+    fecha: hoy(),
+    medio_pago: "Transferencia",
+    importe: "",
+    banco: "",
+    numero_cheque: "",
+    fecha_emision: hoy(),
+    fecha_pago: hoy(),
+    observaciones: "",
+  });
 
   const cargarDatos = useCallback(async () => {
     await Promise.resolve();
@@ -178,6 +202,10 @@ export default function PagosPage() {
           Number((seleccionado as Compra | null)?.importe || 0)
         )
       : Number((seleccionado as Gasto | null)?.importe_total || 0);
+  const importeParaImputar =
+    importeManual.trim() === ""
+      ? importeSeleccionado
+      : Number(importeManual.replace(",", ".") || 0);
   const totalImputado = imputaciones.reduce(
     (acc, imputacion) => acc + imputacion.importe,
     0
@@ -252,10 +280,11 @@ export default function PagosPage() {
         referencia_id: referenciaId,
         beneficiario: beneficiario || null,
         detalle: nombreReferencia(seleccionado),
-        importe: importeSeleccionado,
+        importe: importeParaImputar,
       },
     ]);
     setReferenciaId("");
+    setImporteManual("");
   }
 
   function quitarImputacion(tipoValue: "compra" | "gasto", referenciaIdValue: string) {
@@ -288,7 +317,7 @@ export default function PagosPage() {
                   : (seleccionado as Gasto).proveedor ||
                     (seleccionado as Gasto).categoria,
               detalle: nombreReferencia(seleccionado),
-              importe: importeSeleccionado,
+              importe: importeParaImputar,
             },
           ]
         : [];
@@ -376,6 +405,72 @@ export default function PagosPage() {
       return;
     }
 
+    await cargarDatos();
+  }
+
+  function editarPago(pago: Pago) {
+    if (!puedeGestionar) return;
+
+    setEditandoPagoId(pago.id);
+    setPagoEdit({
+      fecha: pago.fecha || hoy(),
+      medio_pago: pago.medio_pago || "Transferencia",
+      importe: String(pago.importe || ""),
+      banco: pago.banco || "",
+      numero_cheque: pago.numero_cheque || "",
+      fecha_emision: pago.fecha_emision || hoy(),
+      fecha_pago: pago.fecha_pago || hoy(),
+      observaciones: pago.observaciones || "",
+    });
+  }
+
+  function updatePagoEdit(key: keyof PagoEdit, value: string) {
+    setPagoEdit((current) => ({ ...current, [key]: value }));
+  }
+
+  async function guardarEdicionPago(pago: Pago) {
+    if (!puedeGestionar || !editandoPagoId) return;
+
+    const accessToken = session?.access_token || (await getAccessToken());
+
+    if (!accessToken) {
+      alert("No se encontro una sesion activa");
+      return;
+    }
+
+    const response = await fetch("/api/pagos", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: pago.id,
+        tipo: pago.tipo,
+        referencia_id: pago.referencia_id,
+        beneficiario: pago.beneficiario,
+        fecha: pagoEdit.fecha,
+        medio_pago: pagoEdit.medio_pago,
+        importe: Number(pagoEdit.importe.replace(",", ".") || 0),
+        banco: pagoEdit.banco,
+        numero_cheque: pagoEdit.numero_cheque,
+        fecha_emision: pagoEdit.medio_pago.includes("Cheque")
+          ? pagoEdit.fecha_emision
+          : null,
+        fecha_pago: pagoEdit.medio_pago.includes("Cheque")
+          ? pagoEdit.fecha_pago
+          : null,
+        observaciones: pagoEdit.observaciones,
+      }),
+    });
+    const result = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      alert(result.error || "No se pudo editar el pago");
+      return;
+    }
+
+    setEditandoPagoId("");
     await cargarDatos();
   }
 
@@ -591,6 +686,13 @@ export default function PagosPage() {
           ))}
         </select>
 
+        <input
+          className="border rounded p-2 w-full"
+          placeholder={`Importe a imputar: ${importeSeleccionado.toLocaleString("es-AR")}`}
+          value={importeManual}
+          onChange={(event) => setImporteManual(event.target.value)}
+        />
+
         <div className="border rounded-lg p-3 bg-zinc-50 space-y-3">
           <div className="flex justify-between gap-3 items-center">
             <div>
@@ -706,13 +808,109 @@ export default function PagosPage() {
             <div className="mt-2 font-bold">
               ${Number(pago.importe || 0).toLocaleString("es-AR")}
             </div>
+            {puedeGestionar && editandoPagoId === pago.id && (
+              <div className="mt-3 border rounded-lg p-3 bg-zinc-50 space-y-3">
+                <div className="grid grid-cols-4 gap-3">
+                  <input
+                    className="border rounded p-2"
+                    type="date"
+                    value={pagoEdit.fecha}
+                    onChange={(event) => updatePagoEdit("fecha", event.target.value)}
+                  />
+                  <select
+                    className="border rounded p-2"
+                    value={pagoEdit.medio_pago}
+                    onChange={(event) =>
+                      updatePagoEdit("medio_pago", event.target.value)
+                    }
+                  >
+                    <option>Transferencia</option>
+                    <option>Efectivo</option>
+                    <option>Cheque propio</option>
+                    <option>Cheque de terceros</option>
+                    <option>Tarjeta</option>
+                    <option>Otro</option>
+                  </select>
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Importe"
+                    value={pagoEdit.importe}
+                    onChange={(event) => updatePagoEdit("importe", event.target.value)}
+                  />
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Banco"
+                    value={pagoEdit.banco}
+                    onChange={(event) => updatePagoEdit("banco", event.target.value)}
+                  />
+                </div>
+                {pagoEdit.medio_pago.includes("Cheque") && (
+                  <div className="grid grid-cols-3 gap-3">
+                    <input
+                      className="border rounded p-2"
+                      placeholder="Numero de cheque"
+                      value={pagoEdit.numero_cheque}
+                      onChange={(event) =>
+                        updatePagoEdit("numero_cheque", event.target.value)
+                      }
+                    />
+                    <input
+                      className="border rounded p-2"
+                      type="date"
+                      value={pagoEdit.fecha_emision}
+                      onChange={(event) =>
+                        updatePagoEdit("fecha_emision", event.target.value)
+                      }
+                    />
+                    <input
+                      className="border rounded p-2"
+                      type="date"
+                      value={pagoEdit.fecha_pago}
+                      onChange={(event) =>
+                        updatePagoEdit("fecha_pago", event.target.value)
+                      }
+                    />
+                  </div>
+                )}
+                <textarea
+                  className="border rounded p-2 w-full"
+                  placeholder="Observaciones"
+                  value={pagoEdit.observaciones}
+                  onChange={(event) =>
+                    updatePagoEdit("observaciones", event.target.value)
+                  }
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => guardarEdicionPago(pago)}
+                    className="bg-black text-white rounded px-3 py-1"
+                  >
+                    Guardar cambios
+                  </button>
+                  <button
+                    onClick={() => setEditandoPagoId("")}
+                    className="border rounded px-3 py-1"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
             {puedeGestionar && (
-              <button
-                onClick={() => eliminarPago(pago)}
-                className="border rounded px-3 py-1 text-red-600 mt-3"
-              >
-                Eliminar
-              </button>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => editarPago(pago)}
+                  className="border rounded px-3 py-1"
+                >
+                  Editar
+                </button>
+                <button
+                  onClick={() => eliminarPago(pago)}
+                  className="border rounded px-3 py-1 text-red-600"
+                >
+                  Eliminar
+                </button>
+              </div>
             )}
             {pago.observaciones && (
               <div className="text-sm mt-1">{pago.observaciones}</div>

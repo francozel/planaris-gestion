@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import PeriodSelector from "@/components/PeriodSelector";
 import { useAuth } from "@/components/AuthProvider";
 import { canManageRecords } from "@/lib/permissions";
@@ -29,6 +29,15 @@ type Retiro = {
   importe: number | null;
   estado: string | null;
   usuarios?: { nombre?: string | null } | { nombre?: string | null }[] | null;
+};
+
+type RetiroEdit = {
+  fecha: string;
+  usuario_id: string;
+  medio_pago: string;
+  tipo: string;
+  importe: string;
+  estado: string;
 };
 
 const hoy = () => new Date().toISOString().split("T")[0];
@@ -63,6 +72,15 @@ export default function RetirosPage() {
   const [medioPago, setMedioPago] = useState("Transferencia");
   const [motivo, setMotivo] = useState("Adelanto");
   const [importe, setImporte] = useState("");
+  const [editandoRetiroId, setEditandoRetiroId] = useState("");
+  const [retiroEdit, setRetiroEdit] = useState<RetiroEdit>({
+    fecha: hoy(),
+    usuario_id: "",
+    medio_pago: "Transferencia",
+    tipo: "Adelanto",
+    importe: "",
+    estado: "Registrado",
+  });
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -214,6 +232,61 @@ export default function RetirosPage() {
     await cargarDatos();
   }
 
+  function editarRetiro(retiro: Retiro) {
+    if (!puedeGestionar) return;
+
+    setEditandoRetiroId(retiro.id);
+    setRetiroEdit({
+      fecha: retiro.fecha || hoy(),
+      usuario_id: retiro.usuario_id || "",
+      medio_pago: retiro.medio_pago || "Transferencia",
+      tipo: retiro.tipo || "Adelanto",
+      importe: String(retiro.importe || ""),
+      estado: retiro.estado || "Registrado",
+    });
+  }
+
+  function updateRetiroEdit(key: keyof RetiroEdit, value: string) {
+    setRetiroEdit((current) => ({ ...current, [key]: value }));
+  }
+
+  async function guardarEdicionRetiro(retiro: Retiro) {
+    if (!puedeGestionar || !editandoRetiroId) return;
+
+    const accessToken = session?.access_token || (await getAccessToken());
+
+    if (!accessToken) {
+      alert("No se encontro una sesion activa");
+      return;
+    }
+
+    const response = await fetch("/api/retiros", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: retiro.id,
+        fecha: retiroEdit.fecha,
+        usuario_id: retiroEdit.usuario_id,
+        medio_pago: retiroEdit.medio_pago,
+        tipo: retiroEdit.tipo,
+        importe: Number(retiroEdit.importe.replace(",", ".") || 0),
+        estado: retiroEdit.estado,
+      }),
+    });
+    const result = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      alert(result.error || "No se pudo editar el retiro");
+      return;
+    }
+
+    setEditandoRetiroId("");
+    await cargarDatos();
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -343,28 +416,122 @@ export default function RetirosPage() {
             </thead>
             <tbody>
               {filtrados.map((retiro) => (
-                <tr key={retiro.id} className="border-b">
-                  <td className="py-2">{retiro.fecha}</td>
-                  <td className="py-2">
-                    {nombreRelacionado(retiro.usuarios)}
-                  </td>
-                  <td className="py-2">{retiro.tipo || "-"}</td>
-                  <td className="py-2">{retiro.medio_pago || "-"}</td>
-                  <td className="py-2 text-right font-semibold">
-                    {money(Number(retiro.importe || 0))}
-                  </td>
-                  <td className="py-2">{retiro.estado || "Registrado"}</td>
-                  {puedeGestionar && (
+                <Fragment key={retiro.id}>
+                  <tr className="border-b">
+                    <td className="py-2">{retiro.fecha}</td>
                     <td className="py-2">
-                      <button
-                        onClick={() => eliminarRetiro(retiro)}
-                        className="border rounded px-3 py-1 text-red-600"
-                      >
-                        Eliminar
-                      </button>
+                      {nombreRelacionado(retiro.usuarios)}
                     </td>
+                    <td className="py-2">{retiro.tipo || "-"}</td>
+                    <td className="py-2">{retiro.medio_pago || "-"}</td>
+                    <td className="py-2 text-right font-semibold">
+                      {money(Number(retiro.importe || 0))}
+                    </td>
+                    <td className="py-2">{retiro.estado || "Registrado"}</td>
+                    {puedeGestionar && (
+                      <td className="py-2">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => editarRetiro(retiro)}
+                            className="border rounded px-3 py-1"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => eliminarRetiro(retiro)}
+                            className="border rounded px-3 py-1 text-red-600"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                  {puedeGestionar && editandoRetiroId === retiro.id && (
+                    <tr className="border-b bg-zinc-50">
+                      <td colSpan={7} className="py-3">
+                        <div className="grid grid-cols-6 gap-3">
+                          <input
+                            className="border rounded p-2"
+                            type="date"
+                            value={retiroEdit.fecha}
+                            onChange={(event) =>
+                              updateRetiroEdit("fecha", event.target.value)
+                            }
+                          />
+                          <select
+                            className="border rounded p-2"
+                            value={retiroEdit.usuario_id}
+                            onChange={(event) =>
+                              updateRetiroEdit("usuario_id", event.target.value)
+                            }
+                          >
+                            <option value="">Socio</option>
+                            {usuarios.map((usuario) => (
+                              <option key={usuario.id} value={usuario.id}>
+                                {usuario.nombre || usuario.email || "Socio"}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className="border rounded p-2"
+                            value={retiroEdit.medio_pago}
+                            onChange={(event) =>
+                              updateRetiroEdit("medio_pago", event.target.value)
+                            }
+                          >
+                            <option>Transferencia</option>
+                            <option>Efectivo</option>
+                            <option>Cheque</option>
+                            <option>Cheque de tercero</option>
+                          </select>
+                          <select
+                            className="border rounded p-2"
+                            value={retiroEdit.tipo}
+                            onChange={(event) =>
+                              updateRetiroEdit("tipo", event.target.value)
+                            }
+                          >
+                            <option>Adelanto</option>
+                            <option>Dividendos</option>
+                          </select>
+                          <input
+                            className="border rounded p-2"
+                            placeholder="Importe"
+                            value={retiroEdit.importe}
+                            onChange={(event) =>
+                              updateRetiroEdit("importe", event.target.value)
+                            }
+                          />
+                          <select
+                            className="border rounded p-2"
+                            value={retiroEdit.estado}
+                            onChange={(event) =>
+                              updateRetiroEdit("estado", event.target.value)
+                            }
+                          >
+                            <option>Registrado</option>
+                            <option>Anulado</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => guardarEdicionRetiro(retiro)}
+                            className="bg-black text-white rounded px-3 py-1"
+                          >
+                            Guardar cambios
+                          </button>
+                          <button
+                            onClick={() => setEditandoRetiroId("")}
+                            className="border rounded px-3 py-1"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>

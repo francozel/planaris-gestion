@@ -11,6 +11,10 @@ function ShellContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { loading, user } = useAuth();
   const isLogin = pathname === "/login";
+  const isRecovery =
+    typeof window !== "undefined" &&
+    (window.location.hash.includes("type=recovery") ||
+      window.location.search.includes("type=recovery"));
 
   useEffect(() => {
     if (loading) return;
@@ -20,7 +24,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (user && isLogin) {
+    if (user && isLogin && !isRecovery) {
       router.replace(getDefaultRoute(user.rol));
       return;
     }
@@ -28,7 +32,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     if (user && !canAccess(user.rol, pathname)) {
       router.replace(getDefaultRoute(user.rol));
     }
-  }, [isLogin, loading, pathname, router, user]);
+  }, [isLogin, isRecovery, loading, pathname, router, user]);
 
   if (isLogin) {
     return <main className="min-h-screen bg-zinc-100">{children}</main>;

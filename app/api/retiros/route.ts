@@ -72,6 +72,59 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
+export async function PUT(request: Request) {
+  const auth = await getSocioActor(request);
+
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const body = (await request.json()) as RetiroBody;
+
+  if (!body.id || !body.fecha || !body.usuario_id || !body.tipo || !body.medio_pago) {
+    return NextResponse.json(
+      { error: "ID, fecha, socio, motivo y medio son obligatorios" },
+      { status: 400 }
+    );
+  }
+
+  const importe = Number(body.importe || 0);
+
+  if (importe <= 0) {
+    return NextResponse.json(
+      { error: "El importe debe ser mayor a cero" },
+      { status: 400 }
+    );
+  }
+
+  const { data, error } = await auth.supabaseAdmin
+    .from("retiros_socios")
+    .update({
+      fecha: body.fecha,
+      usuario_id: body.usuario_id,
+      tipo: body.tipo,
+      medio_pago: body.medio_pago,
+      importe,
+      estado: body.estado || "Registrado",
+    })
+    .eq("id", body.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (!data) {
+    return NextResponse.json(
+      { error: "No se encontro el retiro" },
+      { status: 404 }
+    );
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(request: Request) {
   const auth = await getSocioActor(request);
 

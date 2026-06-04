@@ -320,6 +320,112 @@ export async function POST(request: Request) {
   return NextResponse.json({ id: cobros?.[0]?.id || null });
 }
 
+export async function PUT(request: Request) {
+  const auth = await getSocioActor(request);
+
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const body = (await request.json()) as CobroBody;
+
+  if (!body.id || !body.venta_id) {
+    return NextResponse.json(
+      { error: "ID y venta son obligatorios" },
+      { status: 400 }
+    );
+  }
+
+  const { data: anterior, error: getError } = await auth.supabaseAdmin
+    .from("cobros")
+    .select("id, venta_id, banco_id, importe_pesos, total_cancelado")
+    .eq("id", body.id)
+    .maybeSingle();
+
+  if (getError) {
+    return NextResponse.json({ error: getError.message }, { status: 400 });
+  }
+
+  if (!anterior) {
+    return NextResponse.json(
+      { error: "No se encontro el cobro" },
+      { status: 404 }
+    );
+  }
+
+  const importePesos = Number(body.importe_pesos || body.total_cancelado || 0);
+  const totalCancelado = Number(body.total_cancelado || importePesos);
+  const retencionesTotal = Number(body.retenciones_total || 0);
+
+  const { error } = await auth.supabaseAdmin
+    .from("cobros")
+    .update({
+      fecha: body.fecha,
+      venta_id: body.venta_id,
+      cliente: body.cliente,
+      medio_cobro: body.medio_cobro,
+      moneda: body.moneda || "ARS",
+      importe_original: Number(body.importe_original || importePesos),
+      tipo_cambio: Number(body.tipo_cambio || 1),
+      importe_pesos: importePesos,
+      retenciones_total: retencionesTotal,
+      retenciones: body.retenciones || [],
+      total_cancelado: totalCancelado,
+      banco_id: body.banco_id || null,
+      banco: body.banco?.trim() || "",
+      numero_operacion: body.numero_operacion?.trim() || "",
+      numero_cheque: body.numero_cheque?.trim() || "",
+      fecha_emision: body.fecha_emision || null,
+      fecha_pago: body.fecha_pago || null,
+    })
+    .eq("id", body.id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (anterior.banco_id === body.banco_id) {
+    const bancoError = await actualizarBanco(
+      auth.supabaseAdmin,
+      body.banco_id,
+      importePesos - Number(anterior.importe_pesos || 0)
+    );
+
+    if (bancoError) {
+      return NextResponse.json({ error: bancoError }, { status: 400 });
+    }
+  } else {
+    const restaError = await actualizarBanco(
+      auth.supabaseAdmin,
+      anterior.banco_id,
+      -Number(anterior.importe_pesos || 0)
+    );
+    if (restaError) {
+      return NextResponse.json({ error: restaError }, { status: 400 });
+    }
+
+    const sumaError = await actualizarBanco(
+      auth.supabaseAdmin,
+      body.banco_id,
+      importePesos
+    );
+    if (sumaError) {
+      return NextResponse.json({ error: sumaError }, { status: 400 });
+    }
+  }
+
+  for (const ventaId of new Set([anterior.venta_id, body.venta_id])) {
+    if (!ventaId) continue;
+    const estadoError = await actualizarEstadoVenta(auth.supabaseAdmin, ventaId);
+
+    if (estadoError) {
+      return NextResponse.json({ error: estadoError }, { status: 400 });
+    }
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(request: Request) {
   const auth = await getSocioActor(request);
 

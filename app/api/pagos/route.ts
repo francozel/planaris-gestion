@@ -191,6 +191,80 @@ export async function POST(request: Request) {
   return NextResponse.json({ id: data?.[0]?.id || null });
 }
 
+export async function PUT(request: Request) {
+  const auth = await getSocioActor(request);
+
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const body = (await request.json()) as PagoBody & { id?: string };
+
+  if (!body.id || !body.tipo || !body.referencia_id) {
+    return NextResponse.json(
+      { error: "ID, tipo y referencia son obligatorios" },
+      { status: 400 }
+    );
+  }
+
+  const { data: pagoAnterior, error: getError } = await auth.supabaseAdmin
+    .from("pagos")
+    .select("id, tipo, referencia_id")
+    .eq("id", body.id)
+    .maybeSingle();
+
+  if (getError) {
+    return NextResponse.json({ error: getError.message }, { status: 400 });
+  }
+
+  if (!pagoAnterior) {
+    return NextResponse.json(
+      { error: "No se encontro el pago" },
+      { status: 404 }
+    );
+  }
+
+  const { error } = await auth.supabaseAdmin
+    .from("pagos")
+    .update({
+      fecha: body.fecha,
+      tipo: body.tipo,
+      referencia_id: body.referencia_id,
+      beneficiario: body.beneficiario || null,
+      importe: Number(body.importe || 0),
+      medio_pago: body.medio_pago,
+      observaciones: body.observaciones?.trim() || "",
+      banco: body.banco?.trim() || "",
+      numero_cheque: body.numero_cheque?.trim() || "",
+      fecha_emision: body.fecha_emision || null,
+      fecha_pago: body.fecha_pago || null,
+    })
+    .eq("id", body.id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  const referencias = [
+    { tipo: pagoAnterior.tipo as "compra" | "gasto", id: pagoAnterior.referencia_id },
+    { tipo: body.tipo, id: body.referencia_id },
+  ];
+
+  for (const referencia of referencias) {
+    const refError = await actualizarReferencia(
+      auth.supabaseAdmin,
+      referencia.tipo,
+      referencia.id
+    );
+
+    if (refError) {
+      return NextResponse.json({ error: refError }, { status: 400 });
+    }
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(request: Request) {
   const auth = await getSocioActor(request);
 

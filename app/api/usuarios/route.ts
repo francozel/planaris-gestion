@@ -14,6 +14,44 @@ type ResetPasswordBody = {
   email?: string;
 };
 
+type UpdateUserBody = {
+  id?: string;
+  nombre?: string;
+  email?: string;
+  rol?: UserRole;
+  activo?: boolean;
+};
+
+function recoveryRedirect(request: Request) {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return `${process.env.NEXT_PUBLIC_SITE_URL}/login`;
+  }
+
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
+
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}/login`;
+  }
+
+  return `${new URL(request.url).origin}/login`;
+}
+
+async function findAuthUserByEmail(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
+  email: string
+) {
+  const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+
+  if (error) return { error };
+
+  const user = data.users.find(
+    (item) => item.email?.toLowerCase() === email.toLowerCase()
+  );
+
+  return { user };
+}
+
 export async function GET(request: Request) {
   const auth = await getActorWithRoles(request, [
     "socio",
@@ -132,12 +170,109 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Email requerido" }, { status: 400 });
   }
 
-  const redirectTo = process.env.NEXT_PUBLIC_SITE_URL
-    ? `${process.env.NEXT_PUBLIC_SITE_URL}/login`
-    : undefined;
+  const { user: authUser, error: listError } = await findAuthUserByEmail(
+    auth.supabaseAdmin,
+    email
+  );
+
+  if (listError) {
+    return NextResponse.json({ error: listError.message }, { status: 400 });
+  }
+
+  if (!authUser) {
+    return NextResponse.json(
+      {
+        error:
+          "No existe un usuario de autenticacion con ese email. Revisar que el email de Usuarios coincida con Auth.",
+      },
+      { status: 404 }
+    );
+  }
+
+  const redirectTo = recoveryRedirect(request);
   const { error } = await auth.supabaseAdmin.auth.resetPasswordForEmail(email, {
     redirectTo,
   });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+export async function PUT(request: Request) {
+  const auth = await getActorWithRoles(request, ["socio"]);
+
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const body = (await request.json()) as UpdateUserBody;
+  const nombre = body.nombre?.trim();
+  const email = body.email?.trim().toLowerCase();
+  const rol = normalizeRole(body.rol);
+
+  if (!body.id || !nombre || !email) {
+    return NextResponse.json(
+      { error: "ID, nombre y email son obligatorios" },
+      { status: 400 }
+    );
+  }
+
+  const { data: currentUser, error: currentError } = await auth.supabaseAdmin
+    .from("usuarios")
+    .select("email")
+    .eq("id", body.id)
+    .maybeSingle();
+
+  if (currentError) {
+    return NextResponse.json({ error: currentError.message }, { status: 400 });
+  }
+
+  if (!currentUser) {
+    return NextResponse.json(
+      { error: "No se encontro el usuario" },
+      { status: 404 }
+    );
+  }
+
+  if (currentUser.email?.toLowerCase() !== email) {
+    const { user: authUser, error: listError } = await findAuthUserByEmail(
+      auth.supabaseAdmin,
+      currentUser.email
+    );
+
+    if (listError) {
+      return NextResponse.json({ error: listError.message }, { status: 400 });
+    }
+
+    if (authUser) {
+      const { error: updateAuthError } =
+        await auth.supabaseAdmin.auth.admin.updateUserById(authUser.id, {
+          email,
+          email_confirm: true,
+          user_metadata: { nombre, rol },
+        });
+
+      if (updateAuthError) {
+        return NextResponse.json(
+          { error: updateAuthError.message },
+          { status: 400 }
+        );
+      }
+    }
+  }
+
+  const { error } = await auth.supabaseAdmin
+    .from("usuarios")
+    .update({
+      nombre,
+      email,
+      rol,
+      activo: body.activo !== false,
+    })
+    .eq("id", body.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

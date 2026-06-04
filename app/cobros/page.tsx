@@ -82,6 +82,23 @@ type InstrumentoCobro = {
   fecha_pago: string | null;
 };
 
+type CobroEdit = {
+  fecha: string;
+  medio_cobro: string;
+  moneda: string;
+  importe_original: string;
+  tipo_cambio: string;
+  importe_pesos: string;
+  retenciones_total: string;
+  total_cancelado: string;
+  banco_id: string;
+  banco: string;
+  numero_operacion: string;
+  numero_cheque: string;
+  fecha_emision: string;
+  fecha_pago: string;
+};
+
 const hoy = () => new Date().toISOString().split("T")[0];
 
 function numero(valor: string) {
@@ -135,6 +152,23 @@ export default function CobrosPage() {
   const [retenciones, setRetenciones] = useState<Retencion[]>([]);
   const [imputaciones, setImputaciones] = useState<ImputacionCobro[]>([]);
   const [instrumentos, setInstrumentos] = useState<InstrumentoCobro[]>([]);
+  const [editandoCobroId, setEditandoCobroId] = useState("");
+  const [cobroEdit, setCobroEdit] = useState<CobroEdit>({
+    fecha: hoy(),
+    medio_cobro: "Caja",
+    moneda: "ARS",
+    importe_original: "",
+    tipo_cambio: "1",
+    importe_pesos: "",
+    retenciones_total: "0",
+    total_cancelado: "",
+    banco_id: "",
+    banco: "",
+    numero_operacion: "",
+    numero_cheque: "",
+    fecha_emision: hoy(),
+    fecha_pago: hoy(),
+  });
 
   const cargarDatos = useCallback(async () => {
     await Promise.resolve();
@@ -509,6 +543,90 @@ export default function CobrosPage() {
       return;
     }
 
+    await cargarDatos();
+  }
+
+  function editarCobro(cobro: Cobro) {
+    if (!puedeGestionar) return;
+
+    setEditandoCobroId(cobro.id);
+    setCobroEdit({
+      fecha: cobro.fecha || hoy(),
+      medio_cobro: cobro.medio_cobro || "Caja",
+      moneda: cobro.moneda || "ARS",
+      importe_original: String(cobro.importe_original || ""),
+      tipo_cambio: String(cobro.tipo_cambio || 1),
+      importe_pesos: String(cobro.importe_pesos || ""),
+      retenciones_total: String(cobro.retenciones_total || 0),
+      total_cancelado: String(cobro.total_cancelado || ""),
+      banco_id: cobro.banco_id || "",
+      banco: cobro.banco || "",
+      numero_operacion: cobro.numero_operacion || "",
+      numero_cheque: cobro.numero_cheque || "",
+      fecha_emision: cobro.fecha_emision || hoy(),
+      fecha_pago: cobro.fecha_pago || hoy(),
+    });
+  }
+
+  function updateCobroEdit(key: keyof CobroEdit, value: string) {
+    setCobroEdit((current) => ({ ...current, [key]: value }));
+  }
+
+  async function guardarEdicionCobro(cobro: Cobro) {
+    if (!puedeGestionar || !editandoCobroId) return;
+
+    const accessToken = session?.access_token || (await getAccessToken());
+
+    if (!accessToken) {
+      alert("No se encontro una sesion activa");
+      return;
+    }
+
+    const importePesosEdit = numero(cobroEdit.importe_pesos);
+    const retencionesEdit = numero(cobroEdit.retenciones_total);
+    const totalEdit =
+      cobroEdit.total_cancelado.trim() === ""
+        ? importePesosEdit + retencionesEdit
+        : numero(cobroEdit.total_cancelado);
+
+    const response = await fetch("/api/cobros", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: cobro.id,
+        venta_id: cobro.venta_id,
+        cliente: cobro.cliente,
+        fecha: cobroEdit.fecha,
+        medio_cobro: cobroEdit.medio_cobro,
+        moneda: cobroEdit.moneda,
+        importe_original: numero(cobroEdit.importe_original),
+        tipo_cambio: numero(cobroEdit.tipo_cambio) || 1,
+        importe_pesos: importePesosEdit,
+        retenciones_total: retencionesEdit,
+        total_cancelado: totalEdit,
+        banco_id: cobroEdit.banco_id || null,
+        banco: cobroEdit.banco,
+        numero_operacion: cobroEdit.numero_operacion,
+        numero_cheque: cobroEdit.numero_cheque,
+        fecha_emision: cobroEdit.medio_cobro.includes("Cheque")
+          ? cobroEdit.fecha_emision
+          : null,
+        fecha_pago: cobroEdit.medio_cobro.includes("Cheque")
+          ? cobroEdit.fecha_pago
+          : null,
+      }),
+    });
+    const result = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      alert(result.error || "No se pudo editar el cobro");
+      return;
+    }
+
+    setEditandoCobroId("");
     await cargarDatos();
   }
 
@@ -939,13 +1057,158 @@ export default function CobrosPage() {
             <div className="mt-2 font-bold">
               ${Number(cobro.total_cancelado || 0).toLocaleString("es-AR")}
             </div>
+            {puedeGestionar && editandoCobroId === cobro.id && (
+              <div className="mt-3 border rounded-lg p-3 bg-zinc-50 space-y-3">
+                <div className="grid grid-cols-4 gap-3">
+                  <input
+                    className="border rounded p-2"
+                    type="date"
+                    value={cobroEdit.fecha}
+                    onChange={(event) => updateCobroEdit("fecha", event.target.value)}
+                  />
+                  <select
+                    className="border rounded p-2"
+                    value={cobroEdit.medio_cobro}
+                    onChange={(event) =>
+                      updateCobroEdit("medio_cobro", event.target.value)
+                    }
+                  >
+                    <option>Caja</option>
+                    <option>Transferencia</option>
+                    <option>Cheque propio</option>
+                    <option>Cheque de terceros</option>
+                    <option>Otros</option>
+                    <option>Retencion</option>
+                  </select>
+                  <select
+                    className="border rounded p-2"
+                    value={cobroEdit.moneda}
+                    onChange={(event) =>
+                      updateCobroEdit("moneda", event.target.value)
+                    }
+                  >
+                    <option value="ARS">ARS</option>
+                    <option value="USD">USD</option>
+                  </select>
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Tipo de cambio"
+                    value={cobroEdit.tipo_cambio}
+                    onChange={(event) =>
+                      updateCobroEdit("tipo_cambio", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Importe original"
+                    value={cobroEdit.importe_original}
+                    onChange={(event) =>
+                      updateCobroEdit("importe_original", event.target.value)
+                    }
+                  />
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Importe pesos"
+                    value={cobroEdit.importe_pesos}
+                    onChange={(event) =>
+                      updateCobroEdit("importe_pesos", event.target.value)
+                    }
+                  />
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Retenciones"
+                    value={cobroEdit.retenciones_total}
+                    onChange={(event) =>
+                      updateCobroEdit("retenciones_total", event.target.value)
+                    }
+                  />
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Total cancelado"
+                    value={cobroEdit.total_cancelado}
+                    onChange={(event) =>
+                      updateCobroEdit("total_cancelado", event.target.value)
+                    }
+                  />
+                </div>
+                <select
+                  className="border rounded p-2 w-full"
+                  value={cobroEdit.banco_id}
+                  onChange={(event) => updateCobroEdit("banco_id", event.target.value)}
+                >
+                  <option value="">Banco destino / caja sin banco</option>
+                  {bancos.map((bancoItem) => (
+                    <option key={bancoItem.id} value={bancoItem.id}>
+                      {bancoItem.nombre || bancoItem.banco || "Banco"} -{" "}
+                      {bancoItem.moneda || "ARS"}
+                    </option>
+                  ))}
+                </select>
+                <div className="grid grid-cols-4 gap-3">
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Banco"
+                    value={cobroEdit.banco}
+                    onChange={(event) => updateCobroEdit("banco", event.target.value)}
+                  />
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Numero operacion"
+                    value={cobroEdit.numero_operacion}
+                    onChange={(event) =>
+                      updateCobroEdit("numero_operacion", event.target.value)
+                    }
+                  />
+                  <input
+                    className="border rounded p-2"
+                    placeholder="Numero cheque"
+                    value={cobroEdit.numero_cheque}
+                    onChange={(event) =>
+                      updateCobroEdit("numero_cheque", event.target.value)
+                    }
+                  />
+                  <input
+                    className="border rounded p-2"
+                    type="date"
+                    value={cobroEdit.fecha_pago}
+                    onChange={(event) =>
+                      updateCobroEdit("fecha_pago", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => guardarEdicionCobro(cobro)}
+                    className="bg-black text-white rounded px-3 py-1"
+                  >
+                    Guardar cambios
+                  </button>
+                  <button
+                    onClick={() => setEditandoCobroId("")}
+                    className="border rounded px-3 py-1"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
             {puedeGestionar && (
-              <button
-                onClick={() => eliminarCobro(cobro)}
-                className="border rounded px-3 py-1 text-red-600 mt-3"
-              >
-                Eliminar
-              </button>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => editarCobro(cobro)}
+                  className="border rounded px-3 py-1"
+                >
+                  Editar
+                </button>
+                <button
+                  onClick={() => eliminarCobro(cobro)}
+                  className="border rounded px-3 py-1 text-red-600"
+                >
+                  Eliminar
+                </button>
+              </div>
             )}
           </div>
         ))}
