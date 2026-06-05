@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import PeriodSelector from "@/components/PeriodSelector";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
@@ -97,8 +98,13 @@ export default function PagosPage() {
   const [vista, setVista] = useState<PeriodView>("mensual");
   const [desde, setDesde] = useState(monthStartISO());
   const [hasta, setHasta] = useState(todayISO());
+  const [historialFecha, setHistorialFecha] = useState("");
+  const [historialProveedor, setHistorialProveedor] = useState("");
+  const [historialEstado, setHistorialEstado] = useState("");
+  const [historialCategoria, setHistorialCategoria] = useState("");
 
   const [tipo, setTipo] = useState<"compra" | "gasto">("compra");
+  const [proveedorCompra, setProveedorCompra] = useState("");
   const [usuarioGastoId, setUsuarioGastoId] = useState("");
   const [referenciaId, setReferenciaId] = useState("");
   const [fecha, setFecha] = useState(hoy());
@@ -133,12 +139,10 @@ export default function PagosPage() {
       supabase
         .from("compras")
         .select("id, fecha, tipo_comprobante, numero_comprobante, razon_social, proveedor, importe, estado")
-        .neq("estado", "Pagada")
         .order("fecha", { ascending: false }),
       supabase
         .from("gastos")
         .select("id, fecha, usuario_id, categoria, proveedor, descripcion, importe_total, estado, reintegrado, usuarios(nombre)")
-        .or("reintegrado.is.false,reintegrado.is.null")
         .order("fecha", { ascending: false }),
       accessToken
         ? fetch("/api/pagos", {
@@ -184,24 +188,67 @@ export default function PagosPage() {
     void cargarDatos();
   }, [cargarDatos]);
 
+  const pagadoPorReferencia = useMemo(() => {
+    return pagos.reduce<Record<string, number>>((acc, pago) => {
+      const key = `${pago.tipo}:${pago.referencia_id}`;
+      acc[key] = (acc[key] || 0) + Number(pago.importe || 0);
+      return acc;
+    }, {});
+  }, [pagos]);
+
+  const saldoCompra = useCallback((compra: Compra) => {
+    const total = signedAmount(
+      compra.tipo_comprobante,
+      Number(compra.importe || 0)
+    );
+    return total - (pagadoPorReferencia[`compra:${compra.id}`] || 0);
+  }, [pagadoPorReferencia]);
+
+  const saldoGasto = useCallback((gasto: Gasto) => {
+    return (
+      Number(gasto.importe_total || 0) -
+      (pagadoPorReferencia[`gasto:${gasto.id}`] || 0)
+    );
+  }, [pagadoPorReferencia]);
+
+  const proveedoresCompra = useMemo(() => {
+    return Array.from(
+      new Set(
+        compras
+          .filter((compra) => Math.abs(saldoCompra(compra)) > 0.01)
+          .map((compra) => compra.razon_social || compra.proveedor || "")
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [compras, saldoCompra]);
+
+  const comprasPendientes = compras.filter((compra) => {
+    const proveedor = compra.razon_social || compra.proveedor || "";
+    return (
+      Math.abs(saldoCompra(compra)) > 0.01 &&
+      (!proveedorCompra || proveedor === proveedorCompra)
+    );
+  });
+
   const gastosPendientes =
     usuarioGastoId === "__proveedores"
-      ? gastos.filter((gasto) => !gasto.usuario_id)
+      ? gastos.filter((gasto) => !gasto.usuario_id && saldoGasto(gasto) > 0.01)
       : usuarioGastoId
-      ? gastos.filter((gasto) => gasto.usuario_id === usuarioGastoId)
+      ? gastos.filter(
+          (gasto) => gasto.usuario_id === usuarioGastoId && saldoGasto(gasto) > 0.01
+        )
       : [];
-  const pendientes = tipo === "compra" ? compras : gastosPendientes;
+  const pendientes = tipo === "compra" ? comprasPendientes : gastosPendientes;
   const seleccionado = useMemo(() => {
     return pendientes.find((item) => item.id === referenciaId) || null;
   }, [pendientes, referenciaId]);
 
   const importeSeleccionado =
-    tipo === "compra"
-      ? signedAmount(
-          (seleccionado as Compra | null)?.tipo_comprobante,
-          Number((seleccionado as Compra | null)?.importe || 0)
-        )
-      : Number((seleccionado as Gasto | null)?.importe_total || 0);
+    seleccionado && tipo === "compra"
+      ? saldoCompra(seleccionado as Compra)
+      : seleccionado
+      ? saldoGasto(seleccionado as Gasto)
+      : 0;
   const importeParaImputar =
     importeManual.trim() === ""
       ? importeSeleccionado
@@ -212,19 +259,43 @@ export default function PagosPage() {
   );
 
   const totalPendienteCompras = compras.reduce(
-    (acc, compra) =>
-      acc + signedAmount(compra.tipo_comprobante, Number(compra.importe || 0)),
+    (acc, compra) => acc + saldoCompra(compra),
     0
   );
   const totalPendienteGastos = gastos.reduce(
-    (acc, gasto) => acc + Number(gasto.importe_total || 0),
+    (acc, gasto) => acc + Math.max(saldoGasto(gasto), 0),
     0
   );
-  const pagosFiltrados = pagos.filter((pago) =>
+  const pagosPeriodo = pagos.filter((pago) =>
     matchesPeriod(pago.fecha, vista, desde, hasta)
   );
 
-  const cheques = pagosFiltrados.filter((pago) =>
+  function estadoPago(pago: Pago) {
+    const esCheque = (pago.medio_pago || "").toLowerCase().includes("cheque");
+    return esCheque && pago.fecha_pago && pago.fecha_pago > todayISO()
+      ? "Pendiente"
+      : "Pagado";
+  }
+
+  const pagosFiltrados = pagosPeriodo.filter((pago) => {
+    const beneficiario = (pago.beneficiario || "").toLowerCase();
+    return (
+      (!historialFecha || pago.fecha === historialFecha) &&
+      (!historialProveedor ||
+        beneficiario.includes(historialProveedor.trim().toLowerCase())) &&
+      (!historialEstado || estadoPago(pago) === historialEstado) &&
+      (!historialCategoria || pago.tipo === historialCategoria)
+    );
+  });
+
+  function limpiarFiltrosHistorial() {
+    setHistorialFecha("");
+    setHistorialProveedor("");
+    setHistorialEstado("");
+    setHistorialCategoria("");
+  }
+
+  const cheques = pagosPeriodo.filter((pago) =>
     (pago.medio_pago || "").toLowerCase().includes("cheque")
   );
   const totalCheques = cheques.reduce(
@@ -259,19 +330,53 @@ export default function PagosPage() {
       return;
     }
 
-    if (
-      imputaciones.some(
-        (item) => item.tipo === tipo && item.referencia_id === referenciaId
-      )
-    ) {
-      alert("La imputacion ya fue agregada");
-      return;
-    }
-
     const beneficiario =
       tipo === "compra"
         ? (seleccionado as Compra).razon_social || (seleccionado as Compra).proveedor
         : (seleccionado as Gasto).proveedor || (seleccionado as Gasto).categoria;
+
+    if (Math.abs(importeParaImputar) <= 0.01) {
+      alert("Ingresa un importe a imputar");
+      return;
+    }
+
+    if (Math.abs(importeParaImputar) > Math.abs(importeSeleccionado) + 0.01) {
+      alert("La imputacion supera el saldo pendiente");
+      return;
+    }
+
+    const existente = imputaciones.find(
+      (item) => item.tipo === tipo && item.referencia_id === referenciaId
+    );
+
+    if (existente) {
+      const saldoDisponible = importeSeleccionado - existente.importe;
+
+      if (Math.abs(saldoDisponible) <= 0.01) {
+        alert("La imputacion ya cubre el saldo pendiente");
+        return;
+      }
+
+      const importeAAgregar =
+        importeManual.trim() === "" ? saldoDisponible : importeParaImputar;
+      const nuevoImporte = existente.importe + importeAAgregar;
+
+      if (Math.abs(nuevoImporte) > Math.abs(importeSeleccionado) + 0.01) {
+        alert("La imputacion supera el saldo pendiente");
+        return;
+      }
+
+      setImputaciones(
+        imputaciones.map((item) =>
+          item.tipo === tipo && item.referencia_id === referenciaId
+            ? { ...item, importe: nuevoImporte }
+            : item
+        )
+      );
+      setReferenciaId("");
+      setImporteManual("");
+      return;
+    }
 
     setImputaciones([
       ...imputaciones,
@@ -538,7 +643,7 @@ export default function PagosPage() {
 
         <div className="border rounded-lg p-4 bg-white">
           <div className="text-sm text-gray-500">Pagos registrados</div>
-          <div className="text-2xl font-bold">{pagosFiltrados.length}</div>
+          <div className="text-2xl font-bold">{pagosPeriodo.length}</div>
         </div>
       </div>
 
@@ -582,12 +687,48 @@ export default function PagosPage() {
             onChange={(event) => {
               setTipo(event.target.value as "compra" | "gasto");
               setReferenciaId("");
+              setProveedorCompra("");
               setUsuarioGastoId("");
             }}
           >
             <option value="compra">Factura de compra</option>
             <option value="gasto">Reintegro de gasto</option>
           </select>
+
+          {tipo === "compra" ? (
+            <select
+              className="border rounded p-2"
+              value={proveedorCompra}
+              onChange={(event) => {
+                setProveedorCompra(event.target.value);
+                setReferenciaId("");
+              }}
+            >
+              <option value="">Todos los proveedores</option>
+              {proveedoresCompra.map((proveedor) => (
+                <option key={proveedor} value={proveedor}>
+                  {proveedor}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <select
+              className="border rounded p-2"
+              value={usuarioGastoId}
+              onChange={(event) => {
+                setUsuarioGastoId(event.target.value);
+                setReferenciaId("");
+              }}
+            >
+              <option value="">Seleccionar origen del gasto</option>
+              <option value="__proveedores">Proveedores / Planaris</option>
+              {usuarios.map((usuario) => (
+                <option key={usuario.id} value={usuario.id}>
+                  {usuario.nombre || usuario.email || "Usuario"}
+                </option>
+              ))}
+            </select>
+          )}
 
           <input
             className="border rounded p-2"
@@ -608,13 +749,6 @@ export default function PagosPage() {
             <option>Tarjeta</option>
             <option>Otro</option>
           </select>
-
-          <div className="border rounded p-2 bg-gray-50">
-            <div className="text-sm text-gray-500">Importe</div>
-            <div className="font-bold">
-              ${importeSeleccionado.toLocaleString("es-AR")}
-            </div>
-          </div>
         </div>
 
         {medioPago.includes("Cheque") && (
@@ -646,25 +780,6 @@ export default function PagosPage() {
           </div>
         )}
 
-        {tipo === "gasto" && (
-          <select
-            className="border rounded p-2 w-full"
-            value={usuarioGastoId}
-            onChange={(event) => {
-              setUsuarioGastoId(event.target.value);
-              setReferenciaId("");
-            }}
-          >
-            <option value="">Seleccionar origen del gasto</option>
-            <option value="__proveedores">Proveedores / Planaris</option>
-            {usuarios.map((usuario) => (
-              <option key={usuario.id} value={usuario.id}>
-                {usuario.nombre || usuario.email || "Usuario"}
-              </option>
-            ))}
-          </select>
-        )}
-
         <select
           className="border rounded p-2 w-full"
           value={referenciaId}
@@ -681,6 +796,12 @@ export default function PagosPage() {
                       Number((item as Compra).importe || 0)
                     )
                   : (item as Gasto).importe_total || 0
+              ).toLocaleString("es-AR")}
+              {" "}pendiente $
+              {Number(
+                tipo === "compra"
+                  ? saldoCompra(item as Compra)
+                  : saldoGasto(item as Gasto)
               ).toLocaleString("es-AR")}
             </option>
           ))}
@@ -784,7 +905,50 @@ export default function PagosPage() {
       {errorCarga && <p className="text-sm text-red-600">{errorCarga}</p>}
 
       <div className="space-y-3">
-        <h2 className="text-xl font-semibold">Historial de pagos</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-xl font-semibold">Historial de pagos</h2>
+          <div className="grid grid-cols-5 gap-2">
+            <input
+              className="border rounded p-2"
+              type="date"
+              value={historialFecha}
+              onChange={(event) => setHistorialFecha(event.target.value)}
+            />
+            <input
+              className="border rounded p-2"
+              placeholder="Proveedor"
+              value={historialProveedor}
+              onChange={(event) => setHistorialProveedor(event.target.value)}
+            />
+            <select
+              className="border rounded p-2"
+              value={historialEstado}
+              onChange={(event) => setHistorialEstado(event.target.value)}
+            >
+              <option value="">Estado</option>
+              <option value="Pagado">Pagado</option>
+              <option value="Pendiente">Pendiente</option>
+            </select>
+            <select
+              className="border rounded p-2"
+              value={historialCategoria}
+              onChange={(event) => setHistorialCategoria(event.target.value)}
+            >
+              <option value="">Categoria</option>
+              <option value="compra">Compra</option>
+              <option value="gasto">Gasto</option>
+            </select>
+            <button
+              type="button"
+              onClick={limpiarFiltrosHistorial}
+              className="border rounded p-2"
+              title="Restablecer filtros"
+              aria-label="Restablecer filtros"
+            >
+              <RotateCcw size={18} />
+            </button>
+          </div>
+        </div>
         {pagosFiltrados.map((pago) => (
           <div key={pago.id} className="border rounded-lg p-4 bg-white">
             <div className="flex justify-between gap-4">
@@ -794,7 +958,8 @@ export default function PagosPage() {
                   {pago.beneficiario || "Sin beneficiario"}
                 </div>
                 <div className="text-sm text-gray-500">
-                  Fecha: {pago.fecha} - Medio: {pago.medio_pago || "-"}
+                  Fecha: {pago.fecha} - Medio: {pago.medio_pago || "-"} - Estado:{" "}
+                  {estadoPago(pago)}
                 </div>
               </div>
               <Link

@@ -130,7 +130,13 @@ async function actualizarEstadoVenta(
     Number(venta.importe || 0)
   );
   const estado =
-    totalCobrado <= 0
+    totalVenta < 0
+      ? totalCobrado >= 0
+        ? "Pendiente"
+        : totalCobrado <= totalVenta
+        ? "Cobrada"
+        : "Parcial"
+      : totalCobrado <= 0
       ? "Pendiente"
       : totalCobrado >= totalVenta
       ? "Cobrada"
@@ -209,6 +215,67 @@ export async function POST(request: Request) {
     restante: Number(imputacion.importe || 0),
   }));
   const payloads = [];
+  let creditosRestantes = pendientes.reduce(
+    (acc, imputacion) =>
+      imputacion.restante < 0 ? acc + Math.abs(imputacion.restante) : acc,
+    0
+  );
+
+  for (const imputacion of pendientes) {
+    if (imputacion.restante >= 0) continue;
+
+    payloads.push({
+      fecha: body.fecha,
+      venta_id: imputacion.venta_id,
+      cliente: imputacion.cliente || body.cliente,
+      medio_cobro: "Nota de credito",
+      moneda: "ARS",
+      importe_original: 0,
+      tipo_cambio: 1,
+      importe_pesos: 0,
+      retenciones_total: 0,
+      retenciones: [],
+      total_cancelado: imputacion.restante,
+      banco_id: null,
+      banco: "",
+      numero_operacion: "",
+      numero_cheque: "",
+      fecha_emision: null,
+      fecha_pago: null,
+    });
+
+    imputacion.restante = 0;
+  }
+
+  for (const imputacion of pendientes) {
+    if (creditosRestantes <= 0) break;
+    if (imputacion.restante <= 0) continue;
+
+    const aplicado = Math.min(imputacion.restante, creditosRestantes);
+
+    payloads.push({
+      fecha: body.fecha,
+      venta_id: imputacion.venta_id,
+      cliente: imputacion.cliente || body.cliente,
+      medio_cobro: "Nota de credito",
+      moneda: "ARS",
+      importe_original: 0,
+      tipo_cambio: 1,
+      importe_pesos: 0,
+      retenciones_total: 0,
+      retenciones: [],
+      total_cancelado: aplicado,
+      banco_id: null,
+      banco: "",
+      numero_operacion: "",
+      numero_cheque: "",
+      fecha_emision: null,
+      fecha_pago: null,
+    });
+
+    imputacion.restante -= aplicado;
+    creditosRestantes -= aplicado;
+  }
 
   for (const instrumento of instrumentos) {
     let restanteInstrumento = Number(instrumento.importe_pesos || 0);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import PeriodSelector from "@/components/PeriodSelector";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
@@ -58,6 +59,10 @@ export default function VentasPage() {
   const [vista, setVista] = useState<PeriodView>("mensual");
   const [desde, setDesde] = useState(monthStartISO());
   const [hasta, setHasta] = useState(todayISO());
+  const [historialFecha, setHistorialFecha] = useState("");
+  const [historialCliente, setHistorialCliente] = useState("");
+  const [historialEstado, setHistorialEstado] = useState("");
+  const [historialCategoria, setHistorialCategoria] = useState("");
 
   const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
   const [tipoComprobante, setTipoComprobante] = useState("Factura A");
@@ -337,6 +342,31 @@ export default function VentasPage() {
   const ventasFiltradas = ventas.filter((venta) =>
     matchesPeriod(venta.fecha, vista, desde, hasta)
   );
+  const estadosHistorial = Array.from(
+    new Set(ventas.map((venta) => venta.estado || "Pendiente"))
+  ).sort((a, b) => a.localeCompare(b));
+  const categoriasHistorial = Array.from(
+    new Set(ventas.map((venta) => venta.tipo_comprobante || "Sin tipo"))
+  ).sort((a, b) => a.localeCompare(b));
+  const historialVentas = ventasFiltradas.filter((venta) => {
+    const cliente = (venta.razon_social || venta.cuit || "").toLowerCase();
+    return (
+      (!historialFecha || venta.fecha === historialFecha) &&
+      (!historialCliente ||
+        cliente.includes(historialCliente.trim().toLowerCase())) &&
+      (!historialEstado ||
+        (venta.estado || "Pendiente") === historialEstado) &&
+      (!historialCategoria ||
+        (venta.tipo_comprobante || "Sin tipo") === historialCategoria)
+    );
+  });
+
+  function limpiarFiltrosHistorial() {
+    setHistorialFecha("");
+    setHistorialCliente("");
+    setHistorialEstado("");
+    setHistorialCategoria("");
+  }
 
   const totalFacturado = ventasFiltradas.reduce(
     (acc, venta) =>
@@ -606,8 +636,57 @@ export default function VentasPage() {
       {!loading && ventas.length === 0 && <p>No hay ventas registradas.</p>}
 
       <div className="space-y-3">
-        <h2 className="text-xl font-semibold">Historial de ventas</h2>
-        {ventasFiltradas.map((venta) => {
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-xl font-semibold">Historial de ventas</h2>
+          <div className="grid grid-cols-5 gap-2">
+            <input
+              className="border rounded p-2"
+              type="date"
+              value={historialFecha}
+              onChange={(event) => setHistorialFecha(event.target.value)}
+            />
+            <input
+              className="border rounded p-2"
+              placeholder="Cliente"
+              value={historialCliente}
+              onChange={(event) => setHistorialCliente(event.target.value)}
+            />
+            <select
+              className="border rounded p-2"
+              value={historialEstado}
+              onChange={(event) => setHistorialEstado(event.target.value)}
+            >
+              <option value="">Estado</option>
+              {estadosHistorial.map((estado) => (
+                <option key={estado} value={estado}>
+                  {estado}
+                </option>
+              ))}
+            </select>
+            <select
+              className="border rounded p-2"
+              value={historialCategoria}
+              onChange={(event) => setHistorialCategoria(event.target.value)}
+            >
+              <option value="">Categoria</option>
+              {categoriasHistorial.map((categoria) => (
+                <option key={categoria} value={categoria}>
+                  {categoria}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={limpiarFiltrosHistorial}
+              className="border rounded p-2"
+              title="Restablecer filtros"
+              aria-label="Restablecer filtros"
+            >
+              <RotateCcw size={18} />
+            </button>
+          </div>
+        </div>
+        {historialVentas.map((venta) => {
           const cancelada = ventaEstaCancelada(venta);
 
           return (

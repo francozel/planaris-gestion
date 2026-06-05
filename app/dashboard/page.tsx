@@ -18,6 +18,7 @@ type Compra = {
   fecha: string;
   tipo_comprobante: string | null;
   importe: number | null;
+  iva: number | null;
   razon_social?: string | null;
   proveedor?: string | null;
 };
@@ -27,6 +28,7 @@ type Venta = {
   fecha: string;
   tipo_comprobante: string | null;
   importe: number | null;
+  iva: number | null;
   razon_social?: string | null;
 };
 
@@ -44,6 +46,7 @@ type Gasto = {
   id: string;
   fecha: string;
   importe_total: number | null;
+  iva: number | null;
   proveedor?: string | null;
   categoria?: string | null;
 };
@@ -73,7 +76,29 @@ function Card({ title, value }: { title: string; value: string }) {
   return (
     <div className="bg-white border rounded-lg p-4">
       <p className="text-zinc-500 text-sm mb-2">{title}</p>
-      <h2 className="metric-number text-zinc-900">{value}</h2>
+      <h2 className="text-xl font-bold leading-tight break-words text-zinc-900">
+        {value}
+      </h2>
+    </div>
+  );
+}
+
+function IvaCard({ value }: { value: number }) {
+  const favorable = value >= 0;
+
+  return (
+    <div className="bg-white border rounded-lg p-4">
+      <p className="text-zinc-500 text-sm mb-2">Situacion tributaria (IVA)</p>
+      <h2
+        className={`text-xl font-bold leading-tight break-words ${
+          favorable ? "text-green-700" : "text-red-700"
+        }`}
+      >
+        {money(Math.abs(value))}
+      </h2>
+      <p className="text-xs text-zinc-500">
+        {favorable ? "IVA a favor" : "IVA en contra"}
+      </p>
     </div>
   );
 }
@@ -96,7 +121,7 @@ function endOfMonthISO(date: Date) {
 
 export default function DashboardPage() {
   const { session } = useAuth();
-  const [view, setView] = useState<PeriodView>("mensual");
+  const [view, setView] = useState<PeriodView>("anual");
   const [from, setFrom] = useState(monthStartISO());
   const [to, setTo] = useState(todayISO());
   const [loading, setLoading] = useState(true);
@@ -125,14 +150,14 @@ export default function DashboardPage() {
       retirosResponse,
     ] =
       await Promise.all([
-        supabase.from("compras").select("id, fecha, tipo_comprobante, importe, razon_social, proveedor"),
-        supabase.from("ingresos").select("id, fecha, tipo_comprobante, importe, razon_social"),
+        supabase.from("compras").select("id, fecha, tipo_comprobante, importe, iva, razon_social, proveedor"),
+        supabase.from("ingresos").select("id, fecha, tipo_comprobante, importe, iva, razon_social"),
         accessToken
           ? fetch("/api/cobros", {
               headers: { Authorization: `Bearer ${accessToken}` },
             })
           : Promise.resolve(null),
-        supabase.from("gastos").select("id, fecha, importe_total, proveedor, categoria"),
+        supabase.from("gastos").select("id, fecha, importe_total, iva, proveedor, categoria"),
         accessToken
           ? fetch("/api/pagos", {
               headers: { Authorization: `Bearer ${accessToken}` },
@@ -223,6 +248,20 @@ export default function DashboardPage() {
       (acc, item) => acc + Number(item.importe_total || 0),
       0
     );
+    const ivaVentas = ventasPeriodo.reduce(
+      (acc, item) =>
+        acc + signedAmount(item.tipo_comprobante, Number(item.iva || 0)),
+      0
+    );
+    const ivaCompras = comprasPeriodo.reduce(
+      (acc, item) =>
+        acc + signedAmount(item.tipo_comprobante, Number(item.iva || 0)),
+      0
+    );
+    const ivaGastos = gastosPeriodo.reduce(
+      (acc, item) => acc + Number(item.iva || 0),
+      0
+    );
 
     return {
       totalCompras,
@@ -230,6 +269,7 @@ export default function DashboardPage() {
       totalCobros,
       totalGastos,
       ganancia: totalVentas - totalCompras - totalGastos,
+      iva: ivaCompras + ivaGastos - ivaVentas,
     };
   }, [cobros, compras, from, gastos, to, ventas, view]);
 
@@ -349,7 +389,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-4xl font-bold text-zinc-900">Dashboard</h1>
-        <p className="text-zinc-500 mt-2">Resumen general del negocio</p>
+        <p className="text-zinc-500 mt-2">Así vamos: Balance Operativo y Analítico de PLANARIS srl</p>
       </div>
 
       <PeriodSelector
@@ -364,12 +404,13 @@ export default function DashboardPage() {
       {loading && <p>Cargando resumen...</p>}
       {errorCarga && <p className="text-sm text-red-600">{errorCarga}</p>}
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-6 gap-4">
         <Card title="Total compras" value={money(resumen.totalCompras)} />
         <Card title="Total ventas" value={money(resumen.totalVentas)} />
         <Card title="Total cobros" value={money(resumen.totalCobros)} />
         <Card title="Total gastos" value={money(resumen.totalGastos)} />
         <Card title="Ganancia" value={money(resumen.ganancia)} />
+        <IvaCard value={resumen.iva} />
       </div>
 
       <div className="bg-white border rounded-lg p-4">

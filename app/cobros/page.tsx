@@ -249,12 +249,15 @@ export default function CobrosPage() {
     const cobrado = cobradoPorVenta[venta.id] || 0;
     return {
       ...venta,
-      pendiente: Math.max(total - cobrado, 0),
+      pendiente: total - cobrado,
     };
   });
 
   const ventaSeleccionada =
     pendientes.find((venta) => venta.id === ventaId) || null;
+  const pendientesConSaldo = pendientes.filter(
+    (venta) => Math.abs(venta.pendiente) > 0.01
+  );
   const cambio = moneda === "ARS" ? 1 : numero(tipoCambio);
   const importeOriginal = numero(importe);
   const importePesos = importeOriginal * cambio;
@@ -272,6 +275,9 @@ export default function CobrosPage() {
     (acc, imputacion) => acc + imputacion.importe,
     0
   );
+  const hayCompensacionConNotaCredito =
+    imputaciones.some((imputacion) => imputacion.importe < 0) &&
+    imputaciones.some((imputacion) => imputacion.importe > 0);
   const cobrosFiltrados = cobros.filter((cobro) =>
     matchesPeriod(cobro.fecha, vista, desde, hasta)
   );
@@ -357,7 +363,7 @@ export default function CobrosPage() {
       return;
     }
 
-    if (ventaSeleccionada.pendiente <= 0) {
+    if (Math.abs(ventaSeleccionada.pendiente) <= 0.01) {
       alert("La factura no tiene saldo pendiente");
       return;
     }
@@ -404,7 +410,11 @@ export default function CobrosPage() {
       return;
     }
 
-    if (pagosEnPesos <= 0 && totalRetenciones <= 0) {
+    if (
+      pagosEnPesos <= 0 &&
+      totalRetenciones <= 0 &&
+      !hayCompensacionConNotaCredito
+    ) {
       alert("Ingresa un importe o retenciones");
       return;
     }
@@ -723,7 +733,7 @@ export default function CobrosPage() {
           onChange={(event) => setVentaId(event.target.value)}
         >
           <option value="">Seleccionar factura emitida</option>
-          {pendientes.map((venta) => (
+          {pendientesConSaldo.map((venta) => (
             <option key={venta.id} value={venta.id}>
               {venta.razon_social || "Cliente"} - {venta.numero_comprobante} -
               pendiente ${venta.pendiente.toLocaleString("es-AR")}

@@ -43,12 +43,25 @@ export default function UsuariosPage() {
   const cargarUsuarios = useCallback(async () => {
     setLoading(true);
 
-    const { data } = await supabase
-      .from("usuarios")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/usuarios", {
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token || ""}`,
+      },
+    });
+    const result = (await response.json()) as {
+      data?: Usuario[];
+      error?: string;
+    };
 
-    setUsuarios(data || []);
+    if (!response.ok) {
+      alert(result.error || "No se pudieron cargar los usuarios");
+      setUsuarios([]);
+      setLoading(false);
+      return;
+    }
+
+    setUsuarios(result.data || []);
     setLoading(false);
   }, []);
 
@@ -165,7 +178,7 @@ export default function UsuariosPage() {
         <p className="text-zinc-500 mt-2">Gestion de usuarios del sistema</p>
       </div>
 
-      {puedeGestionar && <UserForm />}
+      {puedeGestionar && <UserForm onCreated={cargarUsuarios} />}
 
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         {loading && <p className="p-4">Cargando usuarios...</p>}

@@ -4,7 +4,11 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { roleDescriptions, roleLabels, type UserRole } from "@/lib/permissions";
 
-export default function UserForm() {
+type UserFormProps = {
+  onCreated?: () => Promise<void> | void;
+};
+
+export default function UserForm({ onCreated }: UserFormProps) {
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,17 +47,17 @@ export default function UserForm() {
         return;
       }
 
-      alert("Usuario creado");
+      alert("Usuario creado o actualizado");
 
       setNombre("");
       setEmail("");
       setPassword("");
       setRol("usuario");
 
-      location.reload();
-
+      await onCreated?.();
     } catch (error) {
       console.log(error);
+      alert("No se pudo crear el usuario");
     } finally {
       setLoading(false);
     }
@@ -107,7 +111,7 @@ export default function UserForm() {
       <button
         onClick={crearUsuario}
         disabled={loading}
-        className="mt-6 bg-black text-white px-6 py-3 rounded-xl"
+        className="mt-6 bg-black text-white px-6 py-3 rounded-xl disabled:opacity-50"
       >
         {loading ? "Guardando..." : "Crear usuario"}
       </button>

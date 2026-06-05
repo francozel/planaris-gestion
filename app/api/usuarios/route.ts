@@ -125,18 +125,42 @@ export async function POST(request: Request) {
     );
   }
 
-  const { error: createAuthError } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { nombre, rol },
-  });
+  const { user: existingAuthUser, error: listAuthError } =
+    await findAuthUserByEmail(supabaseAdmin, email);
 
-  if (createAuthError) {
-    return NextResponse.json(
-      { error: createAuthError.message },
-      { status: 400 }
-    );
+  if (listAuthError) {
+    return NextResponse.json({ error: listAuthError.message }, { status: 400 });
+  }
+
+  if (existingAuthUser) {
+    const { error: updateAuthError } =
+      await supabaseAdmin.auth.admin.updateUserById(existingAuthUser.id, {
+        password,
+        email_confirm: true,
+        user_metadata: { nombre, rol },
+      });
+
+    if (updateAuthError) {
+      return NextResponse.json(
+        { error: updateAuthError.message },
+        { status: 400 }
+      );
+    }
+  } else {
+    const { error: createAuthError } =
+      await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { nombre, rol },
+      });
+
+    if (createAuthError) {
+      return NextResponse.json(
+        { error: createAuthError.message },
+        { status: 400 }
+      );
+    }
   }
 
   const { error: userError } = await supabaseAdmin.from("usuarios").upsert(

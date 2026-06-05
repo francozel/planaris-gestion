@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { canManageRecords } from "@/lib/permissions";
 import { getAccessToken } from "@/lib/client-auth";
@@ -45,6 +46,10 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
   const { session, user } = useAuth();
   const puedeGestionar = canManageRecords(user?.rol);
   const [editandoId, setEditandoId] = useState("");
+  const [filtroFecha, setFiltroFecha] = useState("");
+  const [filtroProveedor, setFiltroProveedor] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [filtroCategoria, setFiltroCategoria] = useState("");
   const [form, setForm] = useState<GastoEdit>({
     fecha: "",
     categoria: "",
@@ -57,6 +62,47 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
     otros_impuestos: "",
     estado: "Pendiente",
   });
+
+  const estados = useMemo(
+    () =>
+      Array.from(new Set(gastos.map((gasto) => gasto.estado || "Pendiente"))).sort(
+        (a, b) => a.localeCompare(b)
+      ),
+    [gastos]
+  );
+  const categorias = useMemo(
+    () =>
+      Array.from(new Set(gastos.map((gasto) => gasto.categoria || "Sin categoria"))).sort(
+        (a, b) => a.localeCompare(b)
+      ),
+    [gastos]
+  );
+  const gastosFiltrados = useMemo(() => {
+    const textoProveedor = filtroProveedor.trim().toLowerCase();
+
+    return gastos.filter((gasto) => {
+      const proveedor = (
+        gasto.proveedor ||
+        gasto.usuarios?.nombre ||
+        "Proveedores / Planaris"
+      ).toLowerCase();
+
+      return (
+        (!filtroFecha || gasto.fecha === filtroFecha) &&
+        (!textoProveedor || proveedor.includes(textoProveedor)) &&
+        (!filtroEstado || (gasto.estado || "Pendiente") === filtroEstado) &&
+        (!filtroCategoria ||
+          (gasto.categoria || "Sin categoria") === filtroCategoria)
+      );
+    });
+  }, [filtroCategoria, filtroEstado, filtroFecha, filtroProveedor, gastos]);
+
+  function limpiarFiltros() {
+    setFiltroFecha("");
+    setFiltroProveedor("");
+    setFiltroEstado("");
+    setFiltroCategoria("");
+  }
 
   function editarGasto(gasto: Gasto) {
     if (!puedeGestionar) return;
@@ -163,7 +209,56 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
       <div className="p-4 border-b">
-        <h2 className="text-xl font-semibold">Historial de gastos</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-xl font-semibold">Historial de gastos</h2>
+          <div className="grid grid-cols-5 gap-2">
+            <input
+              className="border rounded p-2"
+              type="date"
+              value={filtroFecha}
+              onChange={(event) => setFiltroFecha(event.target.value)}
+            />
+            <input
+              className="border rounded p-2"
+              placeholder="Proveedor"
+              value={filtroProveedor}
+              onChange={(event) => setFiltroProveedor(event.target.value)}
+            />
+            <select
+              className="border rounded p-2"
+              value={filtroEstado}
+              onChange={(event) => setFiltroEstado(event.target.value)}
+            >
+              <option value="">Estado</option>
+              {estados.map((estado) => (
+                <option key={estado} value={estado}>
+                  {estado}
+                </option>
+              ))}
+            </select>
+            <select
+              className="border rounded p-2"
+              value={filtroCategoria}
+              onChange={(event) => setFiltroCategoria(event.target.value)}
+            >
+              <option value="">Categoria</option>
+              {categorias.map((categoria) => (
+                <option key={categoria} value={categoria}>
+                  {categoria}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={limpiarFiltros}
+              className="border rounded p-2"
+              title="Restablecer filtros"
+              aria-label="Restablecer filtros"
+            >
+              <RotateCcw size={18} />
+            </button>
+          </div>
+        </div>
       </div>
       {puedeGestionar && editandoId && (
         <div className="p-4 border-b bg-zinc-50 space-y-3">
@@ -277,7 +372,7 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
         </thead>
 
         <tbody>
-          {gastos.map((gasto) => (
+          {gastosFiltrados.map((gasto) => (
             <tr key={gasto.id} className="border-t">
               <td className="p-4">{gasto.fecha}</td>
               <td className="p-4">
