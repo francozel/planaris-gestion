@@ -186,8 +186,8 @@ export default function UsuariosPage() {
           <table className="w-full">
             <thead className="bg-zinc-100">
               <tr>
-                <th className="text-left p-4">Nombre</th>
                 <th className="text-left p-4">Email</th>
+                <th className="text-left p-4">Nombre</th>
                 <th className="text-left p-4">Rol</th>
                 <th className="text-left p-4">Estado</th>
                 {puedeGestionar && <th className="text-left p-4">Acciones</th>}
@@ -201,8 +201,8 @@ export default function UsuariosPage() {
                 return (
                   <Fragment key={usuario.id}>
                     <tr className="border-t">
+                      <td className="p-4 font-semibold">{usuario.email}</td>
                       <td className="p-4">{usuario.nombre}</td>
-                      <td className="p-4">{usuario.email}</td>
                       <td className="p-4">
                         {roleLabels[rol]}
                         <p className="text-xs text-zinc-500">

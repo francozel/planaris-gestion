@@ -12,6 +12,7 @@ import {
   type PeriodView,
 } from "@/lib/period";
 import { signedAmount } from "@/lib/accounting";
+import { relatedUserIdentity } from "@/lib/user-identity";
 
 type Compra = {
   id: string;
@@ -65,7 +66,10 @@ type Retiro = {
   fecha: string;
   tipo: string | null;
   importe: number | null;
-  usuarios?: { nombre?: string | null } | { nombre?: string | null }[] | null;
+  usuarios?:
+    | { nombre?: string | null; email?: string | null }
+    | { nombre?: string | null; email?: string | null }[]
+    | null;
 };
 
 function money(value: number) {
@@ -109,8 +113,7 @@ function shortName(value: string | null | undefined) {
 }
 
 function relatedUserName(value: Retiro["usuarios"]) {
-  const usuario = Array.isArray(value) ? value[0] : value;
-  return usuario?.nombre || null;
+  return relatedUserIdentity(value, "Socio");
 }
 
 function endOfMonthISO(date: Date) {

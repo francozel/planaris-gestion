@@ -5,6 +5,7 @@ import PeriodSelector from "@/components/PeriodSelector";
 import { useAuth } from "@/components/AuthProvider";
 import { canManageRecords } from "@/lib/permissions";
 import { getAccessToken } from "@/lib/client-auth";
+import { relatedUserIdentity, userIdentityLabel } from "@/lib/user-identity";
 import {
   matchesPeriod,
   monthStartISO,
@@ -28,7 +29,10 @@ type Retiro = {
   medio_pago: string | null;
   importe: number | null;
   estado: string | null;
-  usuarios?: { nombre?: string | null } | { nombre?: string | null }[] | null;
+  usuarios?:
+    | { nombre?: string | null; email?: string | null }
+    | { nombre?: string | null; email?: string | null }[]
+    | null;
 };
 
 type RetiroEdit = {
@@ -50,8 +54,7 @@ function nombreRelacionado(
   value: Retiro["usuarios"],
   fallback = "Sin socio"
 ) {
-  const usuario = Array.isArray(value) ? value[0] : value;
-  return usuario?.nombre || fallback;
+  return relatedUserIdentity(value, fallback);
 }
 
 export default function RetirosPage() {
@@ -342,7 +345,7 @@ export default function RetirosPage() {
               <option value="">Socio</option>
               {usuarios.map((usuario) => (
                 <option key={usuario.id} value={usuario.id}>
-                  {usuario.nombre || usuario.email || "Socio"}
+                  {userIdentityLabel(usuario, "Socio")}
                 </option>
               ))}
             </select>
@@ -392,7 +395,7 @@ export default function RetirosPage() {
             <option value="">Todos los socios</option>
             {usuarios.map((usuario) => (
               <option key={usuario.id} value={usuario.id}>
-                {usuario.nombre || usuario.email || "Socio"}
+                {userIdentityLabel(usuario, "Socio")}
               </option>
             ))}
           </select>
@@ -469,7 +472,7 @@ export default function RetirosPage() {
                             <option value="">Socio</option>
                             {usuarios.map((usuario) => (
                               <option key={usuario.id} value={usuario.id}>
-                                {usuario.nombre || usuario.email || "Socio"}
+                                {userIdentityLabel(usuario, "Socio")}
                               </option>
                             ))}
                           </select>

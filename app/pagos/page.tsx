@@ -9,6 +9,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { canManageRecords } from "@/lib/permissions";
 import { isCreditNote, signedAmount } from "@/lib/accounting";
 import { getAccessToken } from "@/lib/client-auth";
+import { relatedUserIdentity, userIdentityLabel } from "@/lib/user-identity";
 import {
   matchesPeriod,
   monthStartISO,
@@ -37,11 +38,15 @@ type Gasto = {
   importe_total: number | null;
   estado: string | null;
   reintegrado: boolean | null;
-  usuarios?: { nombre?: string | null } | { nombre?: string | null }[] | null;
+  usuarios?:
+    | { nombre?: string | null; email?: string | null }
+    | { nombre?: string | null; email?: string | null }[]
+    | null;
 };
 
 type Pago = {
   id: string;
+  orden_pago_id?: string | null;
   fecha: string;
   tipo: "compra" | "gasto";
   referencia_id: string;
@@ -53,6 +58,32 @@ type Pago = {
   numero_cheque?: string | null;
   fecha_emision?: string | null;
   fecha_pago?: string | null;
+  ordenes_pago?: {
+    id: string;
+    numero: number;
+    fecha: string;
+    beneficiario: string | null;
+    observaciones: string | null;
+    ordenes_pago_medios?: MedioPago[];
+    ordenes_pago_retenciones?: RetencionPago[];
+  } | null;
+};
+
+type MedioPago = {
+  id?: string;
+  medio_pago: string;
+  importe: number;
+  banco: string;
+  numero_operacion: string;
+  numero_cheque: string;
+  fecha_emision: string | null;
+  fecha_pago: string | null;
+};
+
+type RetencionPago = {
+  id?: string;
+  tipo: string;
+  importe: number;
 };
 
 type ImputacionPago = {
@@ -111,9 +142,15 @@ export default function PagosPage() {
   const [medioPago, setMedioPago] = useState("Transferencia");
   const [observaciones, setObservaciones] = useState("");
   const [banco, setBanco] = useState("");
+  const [numeroOperacion, setNumeroOperacion] = useState("");
   const [numeroCheque, setNumeroCheque] = useState("");
   const [fechaEmision, setFechaEmision] = useState(hoy());
   const [fechaPago, setFechaPago] = useState(hoy());
+  const [importeMedio, setImporteMedio] = useState("");
+  const [mediosPago, setMediosPago] = useState<MedioPago[]>([]);
+  const [tipoRetencion, setTipoRetencion] = useState("Ganancias");
+  const [importeRetencion, setImporteRetencion] = useState("");
+  const [retenciones, setRetenciones] = useState<RetencionPago[]>([]);
   const [imputaciones, setImputaciones] = useState<ImputacionPago[]>([]);
   const [importeManual, setImporteManual] = useState("");
   const [editandoPagoId, setEditandoPagoId] = useState("");
@@ -142,7 +179,7 @@ export default function PagosPage() {
         .order("fecha", { ascending: false }),
       supabase
         .from("gastos")
-        .select("id, fecha, usuario_id, categoria, proveedor, descripcion, importe_total, estado, reintegrado, usuarios(nombre)")
+        .select("id, fecha, usuario_id, categoria, proveedor, descripcion, importe_total, estado, reintegrado, usuarios(nombre, email)")
         .order("fecha", { ascending: false }),
       accessToken
         ? fetch("/api/pagos", {
@@ -257,6 +294,14 @@ export default function PagosPage() {
     (acc, imputacion) => acc + imputacion.importe,
     0
   );
+  const totalMedios = mediosPago.reduce(
+    (acc, medio) => acc + Number(medio.importe || 0),
+    0
+  );
+  const totalRetenciones = retenciones.reduce(
+    (acc, retencion) => acc + Number(retencion.importe || 0),
+    0
+  );
 
   const totalPendienteCompras = compras.reduce(
     (acc, compra) => acc + saldoCompra(compra),
@@ -286,6 +331,32 @@ export default function PagosPage() {
       (!historialEstado || estadoPago(pago) === historialEstado) &&
       (!historialCategoria || pago.tipo === historialCategoria)
     );
+  });
+  const ordenesFiltradas = Array.from(
+    pagosFiltrados.reduce<Map<string, Pago[]>>((acc, pago) => {
+      const key = pago.orden_pago_id || pago.id;
+      acc.set(key, [...(acc.get(key) || []), pago]);
+      return acc;
+    }, new Map())
+  ).map(([id, imputacionesOrden]) => {
+    const primero = imputacionesOrden[0];
+    const orden = primero.ordenes_pago;
+    const total = imputacionesOrden.reduce(
+      (acc, pago) => acc + Number(pago.importe || 0),
+      0
+    );
+
+    return {
+      id,
+      numero: orden?.numero || null,
+      fecha: orden?.fecha || primero.fecha,
+      beneficiario: orden?.beneficiario || primero.beneficiario,
+      total,
+      cantidadImputaciones: imputacionesOrden.length,
+      cantidadMedios: orden?.ordenes_pago_medios?.length || 1,
+      retenciones: orden?.ordenes_pago_retenciones || [],
+      imputaciones: imputacionesOrden,
+    };
   });
 
   function limpiarFiltrosHistorial() {
@@ -324,6 +395,12 @@ export default function PagosPage() {
     }`;
   }
 
+  function beneficiarioGasto(gasto: Gasto) {
+    return gasto.usuario_id
+      ? relatedUserIdentity(gasto.usuarios, "Usuario")
+      : gasto.proveedor || gasto.categoria || "Proveedores / Planaris";
+  }
+
   function agregarImputacion() {
     if (!referenciaId || !seleccionado) {
       alert("Selecciona una factura o gasto pendiente");
@@ -333,7 +410,7 @@ export default function PagosPage() {
     const beneficiario =
       tipo === "compra"
         ? (seleccionado as Compra).razon_social || (seleccionado as Compra).proveedor
-        : (seleccionado as Gasto).proveedor || (seleccionado as Gasto).categoria;
+        : beneficiarioGasto(seleccionado as Gasto);
 
     if (Math.abs(importeParaImputar) <= 0.01) {
       alert("Ingresa un importe a imputar");
@@ -401,6 +478,44 @@ export default function PagosPage() {
     );
   }
 
+  function agregarMedioPago() {
+    const importe = Number(importeMedio.replace(",", ".") || 0);
+
+    if (importe <= 0) {
+      alert("Ingresa el importe del medio de pago");
+      return;
+    }
+
+    setMediosPago([
+      ...mediosPago,
+      {
+        medio_pago: medioPago,
+        importe,
+        banco: banco.trim(),
+        numero_operacion: numeroOperacion.trim(),
+        numero_cheque: numeroCheque.trim(),
+        fecha_emision: medioPago.includes("Cheque") ? fechaEmision : null,
+        fecha_pago: medioPago.includes("Cheque") ? fechaPago : null,
+      },
+    ]);
+    setImporteMedio("");
+    setBanco("");
+    setNumeroOperacion("");
+    setNumeroCheque("");
+  }
+
+  function agregarRetencion() {
+    const importe = Number(importeRetencion.replace(",", ".") || 0);
+
+    if (importe <= 0) {
+      alert("Ingresa el importe de la retencion");
+      return;
+    }
+
+    setRetenciones([...retenciones, { tipo: tipoRetencion, importe }]);
+    setImporteRetencion("");
+  }
+
   async function registrarPago() {
     if (!puedeGestionar) {
       alert("Solo los socios pueden registrar pagos");
@@ -419,8 +534,7 @@ export default function PagosPage() {
                 tipo === "compra"
                   ? (seleccionado as Compra).razon_social ||
                     (seleccionado as Compra).proveedor
-                  : (seleccionado as Gasto).proveedor ||
-                    (seleccionado as Gasto).categoria,
+                  : beneficiarioGasto(seleccionado as Gasto),
               detalle: nombreReferencia(seleccionado),
               importe: importeParaImputar,
             },
@@ -452,13 +566,20 @@ export default function PagosPage() {
           medio_pago: medioPago,
           observaciones: observaciones.trim(),
           banco: banco.trim(),
+          numero_operacion: numeroOperacion.trim(),
           numero_cheque: numeroCheque.trim(),
           fecha_emision: medioPago.includes("Cheque") ? fechaEmision : null,
           fecha_pago: medioPago.includes("Cheque") ? fechaPago : null,
           imputaciones: imputacionesFinales,
+          medios: mediosPago,
+          retenciones,
         }),
       });
-      const result = (await response.json()) as { id?: string; error?: string };
+      const result = (await response.json()) as {
+        id?: string;
+        numero_formateado?: string;
+        error?: string;
+      };
 
       if (!response.ok) throw new Error(result.error || "Error al registrar el pago");
 
@@ -467,10 +588,15 @@ export default function PagosPage() {
       setMedioPago("Transferencia");
       setObservaciones("");
       setBanco("");
+      setNumeroOperacion("");
       setNumeroCheque("");
       setFechaEmision(hoy());
       setFechaPago(hoy());
       setImputaciones([]);
+      setMediosPago([]);
+      setRetenciones([]);
+      setImporteMedio("");
+      setImporteRetencion("");
       await cargarDatos();
 
       if (result.id) {
@@ -724,7 +850,7 @@ export default function PagosPage() {
               <option value="__proveedores">Proveedores / Planaris</option>
               {usuarios.map((usuario) => (
                 <option key={usuario.id} value={usuario.id}>
-                  {usuario.nombre || usuario.email || "Usuario"}
+                  {userIdentityLabel(usuario)}
                 </option>
               ))}
             </select>
@@ -779,6 +905,82 @@ export default function PagosPage() {
             />
           </div>
         )}
+
+        {medioPago === "Transferencia" && (
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              className="border rounded p-2"
+              placeholder="Banco"
+              value={banco}
+              onChange={(event) => setBanco(event.target.value)}
+            />
+            <input
+              className="border rounded p-2"
+              placeholder="Numero de operacion"
+              value={numeroOperacion}
+              onChange={(event) => setNumeroOperacion(event.target.value)}
+            />
+          </div>
+        )}
+
+        <div className="border rounded-lg p-3 bg-zinc-50 space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">Medios de pago</h3>
+              <p className="text-sm text-zinc-500">
+                Total cargado: ${totalMedios.toLocaleString("es-AR")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input
+                className="border rounded p-2 bg-white"
+                placeholder="Importe del medio"
+                value={importeMedio}
+                onChange={(event) => setImporteMedio(event.target.value)}
+              />
+              <button
+                type="button"
+                onClick={agregarMedioPago}
+                className="border rounded px-4 py-2 bg-white"
+              >
+                Agregar medio
+              </button>
+            </div>
+          </div>
+          {mediosPago.map((medio, index) => (
+            <div
+              key={`${medio.medio_pago}-${index}`}
+              className="grid gap-2 rounded border bg-white p-3 text-sm sm:grid-cols-[1fr_1fr_auto]"
+            >
+              <div>
+                <strong>{medio.medio_pago}</strong>
+                <p className="text-zinc-500">
+                  {[medio.banco, medio.numero_cheque, medio.numero_operacion]
+                    .filter(Boolean)
+                    .join(" - ") || "Sin datos adicionales"}
+                </p>
+              </div>
+              <strong>${medio.importe.toLocaleString("es-AR")}</strong>
+              <button
+                type="button"
+                onClick={() =>
+                  setMediosPago(
+                    mediosPago.filter((_, medioIndex) => medioIndex !== index)
+                  )
+                }
+                className="border rounded px-3 py-1 text-red-600"
+              >
+                Quitar
+              </button>
+            </div>
+          ))}
+          {mediosPago.length === 0 && (
+            <p className="text-sm text-zinc-500">
+              Si no agregas medios, se usara el medio seleccionado por el saldo
+              total de la orden.
+            </p>
+          )}
+        </div>
 
         <select
           className="border rounded p-2 w-full"
@@ -868,6 +1070,65 @@ export default function PagosPage() {
           )}
         </div>
 
+        <div className="border rounded-lg p-3 bg-zinc-50 space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">Retenciones</h3>
+              <p className="text-sm text-zinc-500">
+                Total retenido: ${totalRetenciones.toLocaleString("es-AR")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select
+                className="border rounded p-2 bg-white"
+                value={tipoRetencion}
+                onChange={(event) => setTipoRetencion(event.target.value)}
+              >
+                <option>Ganancias</option>
+                <option>IVA</option>
+                <option>Ingresos Brutos</option>
+                <option>SUSS</option>
+                <option>Otra</option>
+              </select>
+              <input
+                className="border rounded p-2 bg-white"
+                placeholder="Importe retencion"
+                value={importeRetencion}
+                onChange={(event) => setImporteRetencion(event.target.value)}
+              />
+              <button
+                type="button"
+                onClick={agregarRetencion}
+                className="border rounded px-4 py-2 bg-white"
+              >
+                Agregar retencion
+              </button>
+            </div>
+          </div>
+          {retenciones.map((retencion, index) => (
+            <div
+              key={`${retencion.tipo}-${index}`}
+              className="grid grid-cols-[1fr_1fr_auto] gap-2 rounded border bg-white p-3 text-sm"
+            >
+              <span>{retencion.tipo}</span>
+              <strong>${retencion.importe.toLocaleString("es-AR")}</strong>
+              <button
+                type="button"
+                onClick={() =>
+                  setRetenciones(
+                    retenciones.filter(
+                      (_, retencionIndex) => retencionIndex !== index
+                    )
+                  )
+                }
+                className="border rounded px-3 py-1 text-red-600"
+              >
+                Quitar
+              </button>
+            </div>
+          ))}
+        </div>
+
         <textarea
           className="border rounded p-2 w-full"
           placeholder="Observaciones"
@@ -949,138 +1210,109 @@ export default function PagosPage() {
             </button>
           </div>
         </div>
-        {pagosFiltrados.map((pago) => (
-          <div key={pago.id} className="border rounded-lg p-4 bg-white">
-            <div className="flex justify-between gap-4">
+        {ordenesFiltradas.map((orden) => (
+          <details key={orden.id} className="border rounded-lg bg-white">
+            <summary className="grid cursor-pointer list-none gap-3 p-4 sm:grid-cols-[150px_1fr_auto_auto] sm:items-center">
               <div>
                 <div className="font-semibold">
-                  {pago.tipo === "compra" ? "Compra" : "Gasto"} -{" "}
-                  {pago.beneficiario || "Sin beneficiario"}
+                  {orden.numero
+                    ? `OP-${String(orden.numero).padStart(6, "0")}`
+                    : "Orden historica"}
                 </div>
-                <div className="text-sm text-gray-500">
-                  Fecha: {pago.fecha} - Medio: {pago.medio_pago || "-"} - Estado:{" "}
-                  {estadoPago(pago)}
+                <div className="text-sm text-zinc-500">{orden.fecha}</div>
+              </div>
+              <div>
+                <div className="font-semibold">
+                  {orden.beneficiario || "Sin beneficiario"}
+                </div>
+                <div className="text-sm text-zinc-500">
+                  {orden.cantidadImputaciones} imputacion(es) -{" "}
+                  {orden.cantidadMedios} medio(s)
+                  {orden.retenciones.length > 0
+                    ? ` - ${orden.retenciones.length} retencion(es)`
+                    : ""}
                 </div>
               </div>
+              <strong>${orden.total.toLocaleString("es-AR")}</strong>
               <Link
-                href={`/pagos/orden?id=${pago.id}`}
-                target="_blank"
-                className="border rounded px-4 py-2 h-fit"
+                href={`/pagos/orden?id=${orden.id}`}
+                onClick={(event) => event.stopPropagation()}
+                className="border rounded px-3 py-2 text-center"
               >
-                Orden de pago
+                Ver detalle
               </Link>
-            </div>
-            <div className="mt-2 font-bold">
-              ${Number(pago.importe || 0).toLocaleString("es-AR")}
-            </div>
-            {puedeGestionar && editandoPagoId === pago.id && (
-              <div className="mt-3 border rounded-lg p-3 bg-zinc-50 space-y-3">
-                <div className="grid grid-cols-4 gap-3">
-                  <input
-                    className="border rounded p-2"
-                    type="date"
-                    value={pagoEdit.fecha}
-                    onChange={(event) => updatePagoEdit("fecha", event.target.value)}
-                  />
-                  <select
-                    className="border rounded p-2"
-                    value={pagoEdit.medio_pago}
-                    onChange={(event) =>
-                      updatePagoEdit("medio_pago", event.target.value)
-                    }
-                  >
-                    <option>Transferencia</option>
-                    <option>Efectivo</option>
-                    <option>Cheque propio</option>
-                    <option>Cheque de terceros</option>
-                    <option>Tarjeta</option>
-                    <option>Otro</option>
-                  </select>
-                  <input
-                    className="border rounded p-2"
-                    placeholder="Importe"
-                    value={pagoEdit.importe}
-                    onChange={(event) => updatePagoEdit("importe", event.target.value)}
-                  />
-                  <input
-                    className="border rounded p-2"
-                    placeholder="Banco"
-                    value={pagoEdit.banco}
-                    onChange={(event) => updatePagoEdit("banco", event.target.value)}
-                  />
-                </div>
-                {pagoEdit.medio_pago.includes("Cheque") && (
-                  <div className="grid grid-cols-3 gap-3">
-                    <input
-                      className="border rounded p-2"
-                      placeholder="Numero de cheque"
-                      value={pagoEdit.numero_cheque}
-                      onChange={(event) =>
-                        updatePagoEdit("numero_cheque", event.target.value)
-                      }
-                    />
-                    <input
-                      className="border rounded p-2"
-                      type="date"
-                      value={pagoEdit.fecha_emision}
-                      onChange={(event) =>
-                        updatePagoEdit("fecha_emision", event.target.value)
-                      }
-                    />
-                    <input
-                      className="border rounded p-2"
-                      type="date"
-                      value={pagoEdit.fecha_pago}
-                      onChange={(event) =>
-                        updatePagoEdit("fecha_pago", event.target.value)
-                      }
-                    />
+            </summary>
+
+            <div className="border-t p-4 space-y-3">
+              {orden.imputaciones.map((pago) => (
+                <div key={pago.id} className="rounded border p-3">
+                  <div className="flex flex-wrap justify-between gap-3">
+                    <div>
+                      <strong>
+                        {pago.tipo === "compra" ? "Compra" : "Gasto"} -{" "}
+                        {pago.beneficiario || "Sin beneficiario"}
+                      </strong>
+                      <p className="text-sm text-zinc-500">
+                        {pago.medio_pago || "-"} - {estadoPago(pago)}
+                      </p>
+                    </div>
+                    <strong>
+                      ${Number(pago.importe || 0).toLocaleString("es-AR")}
+                    </strong>
                   </div>
-                )}
-                <textarea
-                  className="border rounded p-2 w-full"
-                  placeholder="Observaciones"
-                  value={pagoEdit.observaciones}
-                  onChange={(event) =>
-                    updatePagoEdit("observaciones", event.target.value)
-                  }
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => guardarEdicionPago(pago)}
-                    className="bg-black text-white rounded px-3 py-1"
-                  >
-                    Guardar cambios
-                  </button>
-                  <button
-                    onClick={() => setEditandoPagoId("")}
-                    className="border rounded px-3 py-1"
-                  >
-                    Cancelar
-                  </button>
+
+                  {puedeGestionar && editandoPagoId === pago.id && (
+                    <div className="mt-3 grid gap-2 rounded border bg-zinc-50 p-3 sm:grid-cols-4">
+                      <input
+                        className="border rounded p-2"
+                        type="date"
+                        value={pagoEdit.fecha}
+                        onChange={(event) =>
+                          updatePagoEdit("fecha", event.target.value)
+                        }
+                      />
+                      <input
+                        className="border rounded p-2"
+                        value={pagoEdit.importe}
+                        onChange={(event) =>
+                          updatePagoEdit("importe", event.target.value)
+                        }
+                      />
+                      <button
+                        onClick={() => guardarEdicionPago(pago)}
+                        className="bg-black text-white rounded px-3 py-2"
+                      >
+                        Guardar cambios
+                      </button>
+                      <button
+                        onClick={() => setEditandoPagoId("")}
+                        className="border rounded px-3 py-2"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+
+                  {puedeGestionar && (
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => editarPago(pago)}
+                        className="border rounded px-3 py-1"
+                      >
+                        Editar imputacion
+                      </button>
+                      <button
+                        onClick={() => eliminarPago(pago)}
+                        className="border rounded px-3 py-1 text-red-600"
+                      >
+                        Eliminar imputacion
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-            {puedeGestionar && (
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => editarPago(pago)}
-                  className="border rounded px-3 py-1"
-                >
-                  Editar
-                </button>
-                <button
-                  onClick={() => eliminarPago(pago)}
-                  className="border rounded px-3 py-1 text-red-600"
-                >
-                  Eliminar
-                </button>
-              </div>
-            )}
-            {pago.observaciones && (
-              <div className="text-sm mt-1">{pago.observaciones}</div>
-            )}
-          </div>
+              ))}
+            </div>
+          </details>
         ))}
       </div>
     </div>

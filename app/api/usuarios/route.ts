@@ -66,7 +66,7 @@ export async function GET(request: Request) {
   const { data, error } = await auth.supabaseAdmin
     .from("usuarios")
     .select("id, nombre, email, rol, activo")
-    .order("nombre");
+    .order("email");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

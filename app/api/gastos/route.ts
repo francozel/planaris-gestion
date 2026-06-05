@@ -38,6 +38,17 @@ function gastoPayload(body: GastoBody) {
   };
 }
 
+function gastoDatabaseError(message: string) {
+  if (
+    message.includes("usuario_id") &&
+    message.includes("not-null constraint")
+  ) {
+    return "La base de datos todavia exige seleccionar un usuario. Ejecuta la migracion sql/permitir_gastos_sin_usuario.sql para registrar gastos de Proveedores / Planaris.";
+  }
+
+  return message;
+}
+
 export async function POST(request: Request) {
   const auth = await getActorWithRoles(request, [
     "socio",
@@ -64,7 +75,10 @@ export async function POST(request: Request) {
   const { error } = await auth.supabaseAdmin.from("gastos").insert(payload);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: gastoDatabaseError(error.message) },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json({ ok: true });
@@ -93,7 +107,10 @@ export async function PUT(request: Request) {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: gastoDatabaseError(error.message) },
+      { status: 400 }
+    );
   }
 
   if (!data) {

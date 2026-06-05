@@ -11,7 +11,8 @@ export default async function GastosPage() {
     .select(`
       *,
       usuarios (
-        nombre
+        nombre,
+        email
       )
     `)
     .order("fecha", {

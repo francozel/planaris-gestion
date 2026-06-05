@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
 import { getAccessToken } from "@/lib/client-auth";
+import { userIdentityLabel } from "@/lib/user-identity";
 
 type Usuario = {
   id: string;
   nombre: string | null;
+  email: string | null;
 };
 
 type CategoriaGasto = {
@@ -120,7 +122,7 @@ export default function GastoForm() {
               <option value="">Seleccionar usuario</option>
               <option value="__proveedores">Proveedores / Planaris</option>
               {usuarios.map((u) => (
-                <option key={u.id} value={u.id}>{u.nombre || "Sin nombre"}</option>
+                <option key={u.id} value={u.id}>{userIdentityLabel(u)}</option>
               ))}
             </select>
 

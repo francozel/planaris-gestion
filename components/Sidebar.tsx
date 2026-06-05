@@ -70,7 +70,8 @@ export default function Sidebar() {
       {user && (
         <div className="md:hidden flex items-center justify-between gap-3 pt-3 border-t border-zinc-800">
           <div className="min-w-0">
-            <p className="font-semibold truncate">{user.nombre}</p>
+            <p className="font-semibold truncate">{user.email}</p>
+            <p className="text-xs text-zinc-500 truncate">{user.nombre}</p>
             <p className="text-xs text-zinc-400">{roleLabels[user.rol]}</p>
           </div>
           <button
@@ -84,7 +85,8 @@ export default function Sidebar() {
 
       {user && (
         <div className="hidden md:block mt-auto pt-6 border-t border-zinc-800">
-          <p className="font-semibold">{user.nombre}</p>
+          <p className="font-semibold break-all">{user.email}</p>
+          <p className="text-xs text-zinc-500">{user.nombre}</p>
           <p className="text-sm text-zinc-400">{roleLabels[user.rol]}</p>
           <p className="text-xs text-zinc-500 mt-1">
             {roleDescriptions[user.rol]}

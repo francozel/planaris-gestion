@@ -5,6 +5,7 @@ import { RotateCcw } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { canManageRecords } from "@/lib/permissions";
 import { getAccessToken } from "@/lib/client-auth";
+import { userIdentityLabel } from "@/lib/user-identity";
 
 type Gasto = {
   id: string;
@@ -21,6 +22,7 @@ type Gasto = {
   estado: string | null;
   usuarios?: {
     nombre?: string | null;
+    email?: string | null;
   } | null;
 };
 
@@ -81,11 +83,15 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
     const textoProveedor = filtroProveedor.trim().toLowerCase();
 
     return gastos.filter((gasto) => {
-      const proveedor = (
-        gasto.proveedor ||
-        gasto.usuarios?.nombre ||
-        "Proveedores / Planaris"
-      ).toLowerCase();
+      const proveedor = [
+        gasto.proveedor,
+        gasto.usuarios?.email,
+        gasto.usuarios?.nombre,
+        "Proveedores / Planaris",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
 
       return (
         (!filtroFecha || gasto.fecha === filtroFecha) &&
@@ -376,7 +382,9 @@ export default function GastosHistorial({ gastos }: { gastos: Gasto[] }) {
             <tr key={gasto.id} className="border-t">
               <td className="p-4">{gasto.fecha}</td>
               <td className="p-4">
-                {gasto.usuarios?.nombre || "Proveedores / Planaris"}
+                {gasto.usuarios
+                  ? userIdentityLabel(gasto.usuarios)
+                  : "Proveedores / Planaris"}
               </td>
               <td className="p-4">{gasto.categoria}</td>
               <td className="p-4">{gasto.proveedor || "-"}</td>

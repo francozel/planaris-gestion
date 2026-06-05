@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await auth.supabaseAdmin
     .from("retiros_socios")
-    .select("*, usuarios(nombre)")
+    .select("*, usuarios(nombre, email)")
     .order("fecha", { ascending: false });
 
   if (error) {
