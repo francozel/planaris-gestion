@@ -30,9 +30,13 @@ type UsuarioEdit = {
 export default function UsuariosPage() {
   const { user } = useAuth();
   const puedeGestionar = canManageRecords(user?.rol);
+  const esAdminUsuarios = user?.rol === "admin";
+  const puedeCrearOCambiarPassword = esAdminUsuarios;
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [editandoId, setEditandoId] = useState("");
+  const [cambiandoPasswordId, setCambiandoPasswordId] = useState("");
+  const [nuevaPassword, setNuevaPassword] = useState("");
   const [usuarioEdit, setUsuarioEdit] = useState<UsuarioEdit>({
     nombre: "",
     email: "",
@@ -98,14 +102,11 @@ export default function UsuariosPage() {
     await cargarUsuarios();
   }
 
-  async function restablecerPassword(usuario: Usuario) {
-    if (!puedeGestionar) return;
-
-    const confirmado = confirm(
-      `Enviar email de restablecimiento a ${usuario.email}?`
-    );
-
-    if (!confirmado) return;
+  async function cambiarPassword(usuario: Usuario) {
+    if (!puedeCrearOCambiarPassword || nuevaPassword.length < 6) {
+      alert("La nueva contrasena debe tener al menos 6 caracteres");
+      return;
+    }
 
     const { data: sessionData } = await supabase.auth.getSession();
     const response = await fetch("/api/usuarios", {
@@ -114,16 +115,18 @@ export default function UsuariosPage() {
         Authorization: `Bearer ${sessionData.session?.access_token || ""}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ email: usuario.email }),
+      body: JSON.stringify({ email: usuario.email, password: nuevaPassword }),
     });
     const result = (await response.json()) as { error?: string };
 
     if (!response.ok) {
-      alert(result.error || "No se pudo enviar el restablecimiento");
+      alert(result.error || "No se pudo cambiar la contrasena");
       return;
     }
 
-    alert("Email de restablecimiento enviado");
+    setCambiandoPasswordId("");
+    setNuevaPassword("");
+    alert("Contrasena actualizada");
   }
 
   function editarUsuario(usuario: Usuario) {
@@ -178,7 +181,7 @@ export default function UsuariosPage() {
         <p className="text-zinc-500 mt-2">Gestion de usuarios del sistema</p>
       </div>
 
-      {puedeGestionar && <UserForm onCreated={cargarUsuarios} />}
+      {puedeCrearOCambiarPassword && <UserForm onCreated={cargarUsuarios} />}
 
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         {loading && <p className="p-4">Cargando usuarios...</p>}
@@ -190,7 +193,9 @@ export default function UsuariosPage() {
                 <th className="text-left p-4">Nombre</th>
                 <th className="text-left p-4">Rol</th>
                 <th className="text-left p-4">Estado</th>
-                {puedeGestionar && <th className="text-left p-4">Acciones</th>}
+                {puedeCrearOCambiarPassword && (
+                  <th className="text-left p-4">Acciones</th>
+                )}
               </tr>
             </thead>
 
@@ -212,34 +217,76 @@ export default function UsuariosPage() {
                       <td className="p-4">
                         {usuario.activo === false ? "Inactivo" : "Activo"}
                       </td>
-                      {puedeGestionar && (
+                      {puedeCrearOCambiarPassword && (
                         <td className="p-4">
                           <div className="flex gap-2">
+                            {puedeGestionar && (
+                              <button
+                                onClick={() => editarUsuario(usuario)}
+                                className="inline-flex items-center gap-2 border rounded px-3 py-2 text-sm hover:bg-zinc-100"
+                              >
+                                <Pencil size={16} />
+                                Editar
+                              </button>
+                            )}
                             <button
-                              onClick={() => editarUsuario(usuario)}
-                              className="inline-flex items-center gap-2 border rounded px-3 py-2 text-sm hover:bg-zinc-100"
-                            >
-                              <Pencil size={16} />
-                              Editar
-                            </button>
-                            <button
-                              onClick={() => restablecerPassword(usuario)}
+                              onClick={() => {
+                                setCambiandoPasswordId(usuario.id);
+                                setNuevaPassword("");
+                              }}
                               className="inline-flex items-center gap-2 border rounded px-3 py-2 text-sm hover:bg-zinc-100"
                             >
                               <KeyRound size={16} />
-                              Restablecer contraseña
+                              Cambiar contrasena
                             </button>
-                            <button
-                              onClick={() => eliminarUsuario(usuario)}
-                              className="inline-flex items-center gap-2 border border-red-200 rounded px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 size={16} />
-                              Eliminar
-                            </button>
+                            {puedeGestionar && (
+                              <button
+                                onClick={() => eliminarUsuario(usuario)}
+                                className="inline-flex items-center gap-2 border border-red-200 rounded px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 size={16} />
+                                Eliminar
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}
                     </tr>
+                    {puedeCrearOCambiarPassword &&
+                      cambiandoPasswordId === usuario.id && (
+                        <tr className="border-t bg-zinc-50">
+                          <td colSpan={5} className="p-4">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <input
+                                className="border rounded p-2 min-w-64"
+                                type="password"
+                                placeholder="Nueva contrasena"
+                                value={nuevaPassword}
+                                onChange={(event) =>
+                                  setNuevaPassword(event.target.value)
+                                }
+                              />
+                              <button
+                                onClick={() => cambiarPassword(usuario)}
+                                className="inline-flex items-center gap-2 bg-black text-white rounded px-3 py-2 text-sm"
+                              >
+                                <Save size={16} />
+                                Guardar contrasena
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCambiandoPasswordId("");
+                                  setNuevaPassword("");
+                                }}
+                                className="inline-flex items-center gap-2 border rounded px-3 py-2 text-sm"
+                              >
+                                <X size={16} />
+                                Cancelar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     {puedeGestionar && editandoId === usuario.id && (
                       <tr className="border-t bg-zinc-50">
                         <td colSpan={5} className="p-4">

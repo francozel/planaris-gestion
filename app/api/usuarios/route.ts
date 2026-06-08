@@ -12,6 +12,7 @@ type CreateUserBody = {
 
 type ResetPasswordBody = {
   email?: string;
+  password?: string;
 };
 
 type UpdateUserBody = {
@@ -21,21 +22,6 @@ type UpdateUserBody = {
   rol?: UserRole;
   activo?: boolean;
 };
-
-function recoveryRedirect(request: Request) {
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return `${process.env.NEXT_PUBLIC_SITE_URL}/login`;
-  }
-
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
-
-  if (forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}/login`;
-  }
-
-  return `${new URL(request.url).origin}/login`;
-}
 
 async function findAuthUserByEmail(
   supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
@@ -57,6 +43,7 @@ export async function GET(request: Request) {
     "socio",
     "administracion",
     "usuario",
+    "admin",
   ]);
 
   if ("error" in auth) {
@@ -108,7 +95,7 @@ export async function POST(request: Request) {
 
   const actorRole = normalizeRole(actor?.rol);
 
-  if (!actor?.activo || (actorRole !== "socio" && actorRole !== "administracion")) {
+  if (!actor?.activo || actorRole !== "admin") {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
@@ -181,7 +168,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const auth = await getActorWithRoles(request, ["socio", "administracion"]);
+  const auth = await getActorWithRoles(request, ["admin"]);
 
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -189,9 +176,13 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json()) as ResetPasswordBody;
   const email = body.email?.trim().toLowerCase();
+  const password = body.password?.trim();
 
-  if (!email) {
-    return NextResponse.json({ error: "Email requerido" }, { status: 400 });
+  if (!email || !password || password.length < 6) {
+    return NextResponse.json(
+      { error: "Email y una contrasena de al menos 6 caracteres son requeridos" },
+      { status: 400 }
+    );
   }
 
   const { user: authUser, error: listError } = await findAuthUserByEmail(
@@ -213,10 +204,10 @@ export async function PATCH(request: Request) {
     );
   }
 
-  const redirectTo = recoveryRedirect(request);
-  const { error } = await auth.supabaseAdmin.auth.resetPasswordForEmail(email, {
-    redirectTo,
-  });
+  const { error } = await auth.supabaseAdmin.auth.admin.updateUserById(
+    authUser.id,
+    { password }
+  );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

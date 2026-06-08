@@ -25,7 +25,7 @@ const items = [
   { label: "Compras", href: "/compras", icon: Receipt },
   { label: "Pagos", href: "/pagos", icon: CreditCard },
   { label: "Gastos", href: "/gastos", icon: Wallet },
-  { label: "Retiros", href: "/retiros", icon: ArrowUpCircle },
+  { label: "Socios", href: "/retiros", icon: ArrowUpCircle },
   { label: "Clientes", href: "/clientes", icon: Building2 },
   { label: "Proveedores", href: "/proveedores", icon: Truck },
   { label: "Bancos", href: "/bancos", icon: Banknote },
@@ -41,7 +41,7 @@ export default function Sidebar() {
   );
 
   return (
-    <aside className="w-full md:w-64 bg-black text-white p-3 md:p-6 flex flex-col md:min-h-screen md:sticky md:top-0">
+    <aside className="w-full md:w-64 bg-black text-white p-3 md:p-6 flex flex-col md:min-h-screen">
       <div className="hidden md:block mb-10">
         <img
   src="/logo-planaris.png"
@@ -69,11 +69,14 @@ export default function Sidebar() {
 
       {user && (
         <div className="md:hidden flex items-center justify-between gap-3 pt-3 border-t border-zinc-800">
-          <div className="min-w-0">
+          <Link
+            href={user.rol === "admin" ? "/usuarios" : "/mi-cuenta"}
+            className="min-w-0 hover:text-zinc-300"
+          >
             <p className="font-semibold truncate">{user.email}</p>
             <p className="text-xs text-zinc-500 truncate">{user.nombre}</p>
             <p className="text-xs text-zinc-400">{roleLabels[user.rol]}</p>
-          </div>
+          </Link>
           <button
             onClick={signOut}
             className="flex-none border border-zinc-700 rounded-lg px-3 py-2 text-sm hover:bg-zinc-800 transition"
@@ -84,13 +87,18 @@ export default function Sidebar() {
       )}
 
       {user && (
-        <div className="hidden md:block mt-auto pt-6 border-t border-zinc-800">
-          <p className="font-semibold break-all">{user.email}</p>
-          <p className="text-xs text-zinc-500">{user.nombre}</p>
-          <p className="text-sm text-zinc-400">{roleLabels[user.rol]}</p>
-          <p className="text-xs text-zinc-500 mt-1">
-            {roleDescriptions[user.rol]}
-          </p>
+        <div className="hidden md:block mt-6 pt-6 border-t border-zinc-800">
+          <Link
+            href={user.rol === "admin" ? "/usuarios" : "/mi-cuenta"}
+            className="block hover:text-zinc-300"
+          >
+            <p className="font-semibold break-all">{user.email}</p>
+            <p className="text-xs text-zinc-500">{user.nombre}</p>
+            <p className="text-sm text-zinc-400">{roleLabels[user.rol]}</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {roleDescriptions[user.rol]}
+            </p>
+          </Link>
           <button
             onClick={signOut}
             className="mt-4 w-full border border-zinc-700 rounded-xl px-4 py-2 text-left hover:bg-zinc-800 transition"

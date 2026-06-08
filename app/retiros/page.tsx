@@ -44,6 +44,16 @@ type RetiroEdit = {
   estado: string;
 };
 
+type SocioResumen = {
+  id: string;
+  nombre: string | null;
+  email: string;
+  gastos: number;
+  reintegros: number;
+  retiros: number;
+  saldo: number;
+};
+
 const hoy = () => new Date().toISOString().split("T")[0];
 
 function money(value: number) {
@@ -62,6 +72,7 @@ export default function RetirosPage() {
   const puedeGestionar = canManageRecords(user?.rol);
   const [retiros, setRetiros] = useState<Retiro[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [resumenSocios, setResumenSocios] = useState<SocioResumen[]>([]);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [errorCarga, setErrorCarga] = useState("");
@@ -97,11 +108,14 @@ export default function RetirosPage() {
       return;
     }
 
-    const [retirosResponse, usuariosResponse] = await Promise.all([
+    const [retirosResponse, usuariosResponse, resumenResponse] = await Promise.all([
       fetch("/api/retiros", {
         headers: { Authorization: `Bearer ${accessToken}` },
       }),
       fetch("/api/usuarios", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }),
+      fetch("/api/socios/resumen", {
         headers: { Authorization: `Bearer ${accessToken}` },
       }),
     ]);
@@ -113,11 +127,16 @@ export default function RetirosPage() {
       data?: Usuario[];
       error?: string;
     };
+    const resumenResult = (await resumenResponse.json()) as {
+      data?: SocioResumen[];
+      error?: string;
+    };
 
-    if (!retirosResponse.ok || !usuariosResponse.ok) {
+    if (!retirosResponse.ok || !usuariosResponse.ok || !resumenResponse.ok) {
       setErrorCarga(
         retirosResult.error ||
           usuariosResult.error ||
+          resumenResult.error ||
           "No se pudieron cargar los retiros"
       );
       setLoading(false);
@@ -130,6 +149,7 @@ export default function RetirosPage() {
         (usuario) => usuario.activo !== false && usuario.rol === "socio"
       )
     );
+    setResumenSocios(resumenResult.data || []);
     setLoading(false);
   }, [session]);
 
@@ -293,9 +313,9 @@ export default function RetirosPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-4xl font-bold">Retiros de socios</h1>
+        <h1 className="text-4xl font-bold">Socios</h1>
         <p className="text-zinc-500 mt-2">
-          Salidas por adelantos y dividendos de socios
+          Saldos, gastos, reintegros y retiros de socios
         </p>
       </div>
 
@@ -325,6 +345,43 @@ export default function RetirosPage() {
           <div className="text-sm text-gray-500">Cantidad</div>
           <div className="metric-number">{filtrados.length}</div>
         </div>
+      </div>
+
+      <div className="border rounded-lg bg-white overflow-x-auto">
+        <div className="p-4 border-b">
+          <h2 className="text-xl font-semibold">Saldos por socio</h2>
+        </div>
+        <table className="w-full min-w-[760px]">
+          <thead className="bg-zinc-100 text-left">
+            <tr>
+              <th className="p-3">Socio</th>
+              <th className="p-3 text-right">Gastos asociados</th>
+              <th className="p-3 text-right">Reintegros</th>
+              <th className="p-3 text-right">Retiros</th>
+              <th className="p-3 text-right">Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resumenSocios.map((socio) => (
+              <tr key={socio.id} className="border-t">
+                <td className="p-3">
+                  <strong>{socio.email}</strong>
+                  <p className="text-sm text-zinc-500">{socio.nombre}</p>
+                </td>
+                <td className="p-3 text-right">{money(socio.gastos)}</td>
+                <td className="p-3 text-right">{money(socio.reintegros)}</td>
+                <td className="p-3 text-right">{money(socio.retiros)}</td>
+                <td
+                  className={`p-3 text-right font-bold ${
+                    socio.saldo >= 0 ? "text-green-700" : "text-red-600"
+                  }`}
+                >
+                  {money(socio.saldo)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {puedeGestionar && (

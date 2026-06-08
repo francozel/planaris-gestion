@@ -803,7 +803,7 @@ export default function CobrosPage() {
           >
             <option>Caja</option>
             <option>Transferencia</option>
-            <option>Cheque propio</option>
+            <option value="Cheque propio">Cheque del cliente</option>
             <option>Cheque de terceros</option>
             <option>Otros</option>
           </select>
@@ -1085,7 +1085,7 @@ export default function CobrosPage() {
                   >
                     <option>Caja</option>
                     <option>Transferencia</option>
-                    <option>Cheque propio</option>
+                    <option value="Cheque propio">Cheque del cliente</option>
                     <option>Cheque de terceros</option>
                     <option>Otros</option>
                     <option>Retencion</option>

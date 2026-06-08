@@ -71,11 +71,23 @@ type Pago = {
 
 type MedioPago = {
   id?: string;
+  cobro_origen_id?: string | null;
   medio_pago: string;
   importe: number;
   banco: string;
   numero_operacion: string;
   numero_cheque: string;
+  fecha_emision: string | null;
+  fecha_pago: string | null;
+};
+
+type ChequeCartera = {
+  id: string;
+  fecha: string;
+  cliente: string | null;
+  importe_pesos: number;
+  banco: string | null;
+  numero_cheque: string | null;
   fecha_emision: string | null;
   fecha_pago: string | null;
 };
@@ -121,6 +133,9 @@ export default function PagosPage() {
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [chequesCartera, setChequesCartera] = useState<ChequeCartera[]>([]);
+  const [chequeCarteraId, setChequeCarteraId] = useState("");
+  const [errorCartera, setErrorCartera] = useState("");
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [errorCarga, setErrorCarga] = useState("");
@@ -172,7 +187,7 @@ export default function PagosPage() {
 
     const accessToken = session?.access_token || (await getAccessToken());
 
-    const [comprasResult, gastosResult, pagosResponse, usuariosResponse] = await Promise.all([
+    const [comprasResult, gastosResult, pagosResponse, usuariosResponse, carteraResponse] = await Promise.all([
       supabase
         .from("compras")
         .select("id, fecha, tipo_comprobante, numero_comprobante, razon_social, proveedor, importe, estado")
@@ -191,6 +206,11 @@ export default function PagosPage() {
             headers: { Authorization: `Bearer ${accessToken}` },
           })
         : Promise.resolve(null),
+      accessToken
+        ? fetch("/api/cobros?cartera=cheques-terceros", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          })
+        : Promise.resolve(null),
     ]);
 
     if (comprasResult.error || gastosResult.error || !pagosResponse) {
@@ -206,6 +226,12 @@ export default function PagosPage() {
     const usuariosResult = usuariosResponse
       ? ((await usuariosResponse.json()) as { data?: Usuario[]; error?: string })
       : { data: [] };
+    const carteraResult = carteraResponse
+      ? ((await carteraResponse.json()) as {
+          data?: ChequeCartera[];
+          error?: string;
+        })
+      : { data: [] };
 
     if (!pagosResponse.ok) {
       setErrorCarga(pagosResult.error || "No se pudieron cargar los pagos.");
@@ -217,6 +243,12 @@ export default function PagosPage() {
     setGastos(gastosResult.data || []);
     setPagos(pagosResult.data || []);
     setUsuarios((usuariosResult.data || []).filter((usuario) => usuario.activo !== false));
+    setChequesCartera(carteraResult.data || []);
+    setErrorCartera(
+      carteraResponse && !carteraResponse.ok
+        ? carteraResult.error || "No se pudo cargar la cartera de cheques"
+        : ""
+    );
     setLoading(false);
   }, [session]);
 
@@ -481,6 +513,11 @@ export default function PagosPage() {
   function agregarMedioPago() {
     const importe = Number(importeMedio.replace(",", ".") || 0);
 
+    if (medioPago === "Cheque de terceros" && !chequeCarteraId) {
+      alert("Selecciona un cheque disponible en cartera");
+      return;
+    }
+
     if (importe <= 0) {
       alert("Ingresa el importe del medio de pago");
       return;
@@ -489,6 +526,8 @@ export default function PagosPage() {
     setMediosPago([
       ...mediosPago,
       {
+        cobro_origen_id:
+          medioPago === "Cheque de terceros" ? chequeCarteraId : null,
         medio_pago: medioPago,
         importe,
         banco: banco.trim(),
@@ -499,9 +538,28 @@ export default function PagosPage() {
       },
     ]);
     setImporteMedio("");
+    setChequeCarteraId("");
     setBanco("");
     setNumeroOperacion("");
     setNumeroCheque("");
+  }
+
+  function seleccionarChequeCartera(id: string) {
+    setChequeCarteraId(id);
+    const cheque = chequesCartera.find((item) => item.id === id);
+
+    if (!cheque) {
+      setImporteMedio("");
+      setBanco("");
+      setNumeroCheque("");
+      return;
+    }
+
+    setImporteMedio(String(Number(cheque.importe_pesos || 0)));
+    setBanco(cheque.banco || "");
+    setNumeroCheque(cheque.numero_cheque || "");
+    setFechaEmision(cheque.fecha_emision || hoy());
+    setFechaPago(cheque.fecha_pago || hoy());
   }
 
   function agregarRetencion() {
@@ -590,6 +648,7 @@ export default function PagosPage() {
       setBanco("");
       setNumeroOperacion("");
       setNumeroCheque("");
+      setChequeCarteraId("");
       setFechaEmision(hoy());
       setFechaPago(hoy());
       setImputaciones([]);
@@ -866,7 +925,14 @@ export default function PagosPage() {
           <select
             className="border rounded p-2"
             value={medioPago}
-            onChange={(event) => setMedioPago(event.target.value)}
+            onChange={(event) => {
+              setMedioPago(event.target.value);
+              setChequeCarteraId("");
+              setImporteMedio("");
+              setBanco("");
+              setNumeroOperacion("");
+              setNumeroCheque("");
+            }}
           >
             <option>Transferencia</option>
             <option>Efectivo</option>
@@ -877,7 +943,46 @@ export default function PagosPage() {
           </select>
         </div>
 
-        {medioPago.includes("Cheque") && (
+        {medioPago === "Cheque de terceros" && (
+          <div className="space-y-2">
+            <select
+              className="border rounded p-2 w-full"
+              value={chequeCarteraId}
+              onChange={(event) => seleccionarChequeCartera(event.target.value)}
+            >
+              <option value="">Seleccionar cheque disponible en cartera</option>
+              {chequesCartera
+                .filter(
+                  (cheque) =>
+                    !mediosPago.some(
+                      (medio) => medio.cobro_origen_id === cheque.id
+                    )
+                )
+                .map((cheque) => (
+                  <option key={cheque.id} value={cheque.id}>
+                    {cheque.numero_cheque || "Sin numero"} -{" "}
+                    {cheque.banco || "Sin banco"} -{" "}
+                    {cheque.cliente || "Sin cliente"} - $
+                    {Number(cheque.importe_pesos || 0).toLocaleString("es-AR")} -
+                    vence {cheque.fecha_pago || "-"}
+                  </option>
+                ))}
+            </select>
+            {errorCartera && (
+              <p className="text-sm text-red-600">
+                {errorCartera}. Ejecuta la migracion
+                sql/cheques_terceros_en_pagos.sql.
+              </p>
+            )}
+            {!errorCartera && chequesCartera.length === 0 && (
+              <p className="text-sm text-zinc-500">
+                No hay cheques recibidos disponibles en cartera.
+              </p>
+            )}
+          </div>
+        )}
+
+        {medioPago === "Cheque propio" && (
           <div className="grid grid-cols-4 gap-3">
             <input
               className="border rounded p-2"
@@ -937,6 +1042,7 @@ export default function PagosPage() {
                 placeholder="Importe del medio"
                 value={importeMedio}
                 onChange={(event) => setImporteMedio(event.target.value)}
+                readOnly={medioPago === "Cheque de terceros"}
               />
               <button
                 type="button"

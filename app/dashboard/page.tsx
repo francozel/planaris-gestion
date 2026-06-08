@@ -40,6 +40,18 @@ type Cobro = {
   medio_cobro: string | null;
   importe_pesos: number | null;
   total_cancelado: number | null;
+  banco: string | null;
+  numero_cheque: string | null;
+  fecha_emision: string | null;
+  fecha_pago: string | null;
+};
+
+type MedioPagoOrden = {
+  id: string;
+  cobro_origen_id: string | null;
+  beneficiario?: string | null;
+  medio_pago: string | null;
+  importe: number | null;
   fecha_pago: string | null;
 };
 
@@ -59,6 +71,11 @@ type Pago = {
   medio_pago: string | null;
   importe: number | null;
   fecha_pago: string | null;
+  ordenes_pago?: {
+    id: string;
+    fecha: string;
+    ordenes_pago_medios?: MedioPagoOrden[];
+  } | null;
 };
 
 type Retiro = {
@@ -120,6 +137,16 @@ function endOfMonthISO(date: Date) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0)
     .toISOString()
     .split("T")[0];
+}
+
+function chequeKey(cobro: Cobro) {
+  return [
+    cobro.numero_cheque || "",
+    cobro.banco || "",
+    cobro.fecha_emision || "",
+    cobro.fecha_pago || "",
+    cobro.cliente || "",
+  ].join("|");
 }
 
 export default function DashboardPage() {
@@ -276,11 +303,49 @@ export default function DashboardPage() {
     };
   }, [cobros, compras, from, gastos, to, ventas, view]);
 
-  const chequesCobro = cobros.filter((cobro) =>
-    (cobro.medio_cobro || "").toLowerCase().includes("cheque")
+  const mediosPago = Array.from(
+    pagos.reduce<Map<string, MedioPagoOrden & { fecha: string }>>((acc, pago) => {
+      const medios = pago.ordenes_pago?.ordenes_pago_medios || [];
+
+      if (medios.length === 0) {
+        acc.set(`legacy-${pago.id}`, {
+          id: `legacy-${pago.id}`,
+          cobro_origen_id: null,
+          medio_pago: pago.medio_pago,
+          importe: pago.importe,
+          fecha_pago: pago.fecha_pago,
+          fecha: pago.fecha,
+          beneficiario: pago.beneficiario,
+        });
+        return acc;
+      }
+
+      for (const medio of medios) {
+        acc.set(medio.id, {
+          ...medio,
+          fecha: pago.ordenes_pago?.fecha || pago.fecha,
+          beneficiario: pago.beneficiario,
+        });
+      }
+
+      return acc;
+    }, new Map())
+  ).map(([, medio]) => medio);
+  const cobrosOrigenUsados = new Set(
+    mediosPago.map((medio) => medio.cobro_origen_id).filter(Boolean)
   );
-  const chequesPago = pagos.filter((pago) =>
-    (pago.medio_pago || "").toLowerCase().includes("cheque")
+  const chequesUsadosKeys = new Set(
+    cobros
+      .filter((cobro) => cobrosOrigenUsados.has(cobro.id))
+      .map(chequeKey)
+  );
+  const chequesCobro = cobros.filter(
+    (cobro) =>
+      (cobro.medio_cobro || "").toLowerCase().includes("cheque") &&
+      !chequesUsadosKeys.has(chequeKey(cobro))
+  );
+  const chequesPago = mediosPago.filter((medio) =>
+    (medio.medio_pago || "").toLowerCase().includes("cheque")
   );
   const totalChequesCobro = chequesCobro.reduce(
     (acc, cobro) => acc + Number(cobro.importe_pesos || cobro.total_cancelado || 0),
@@ -302,16 +367,21 @@ export default function DashboardPage() {
   const finMesProximo = endOfMonthISO(
     new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
   );
-  const cobrosLiquidados = cobros.filter((cobro) => {
-    const esCheque = (cobro.medio_cobro || "").toLowerCase().includes("cheque");
-    return !esCheque || !cobro.fecha_pago || cobro.fecha_pago <= hoyISO;
+  const cobrosConDinero = cobros.filter((cobro) => {
+    const medio = (cobro.medio_cobro || "").toLowerCase();
+    return !medio.includes("retencion") && !medio.includes("nota de credito");
   });
-  const chequesPorAcreditar = chequesCobro.filter(
-    (cobro) => cobro.fecha_pago && cobro.fecha_pago > hoyISO
-  );
-  const pagosLiquidados = pagos.filter((pago) => {
+  const cobrosLiquidados = cobrosConDinero.filter((cobro) => {
+    const esCheque = (cobro.medio_cobro || "").toLowerCase().includes("cheque");
+    if (esCheque && chequesUsadosKeys.has(chequeKey(cobro))) return false;
+    const fechaEfectiva = esCheque ? cobro.fecha_pago || cobro.fecha : cobro.fecha;
+    return fechaEfectiva <= hoyISO;
+  });
+  const pagosLiquidados = mediosPago.filter((pago) => {
+    if (pago.cobro_origen_id) return false;
     const esCheque = (pago.medio_pago || "").toLowerCase().includes("cheque");
-    return !esCheque || !pago.fecha_pago || pago.fecha_pago <= hoyISO;
+    const fechaEfectiva = esCheque ? pago.fecha_pago || pago.fecha : pago.fecha;
+    return fechaEfectiva <= hoyISO;
   });
   const liquidezActual =
     cobrosLiquidados.reduce(
@@ -319,27 +389,79 @@ export default function DashboardPage() {
       0
     ) -
     pagosLiquidados.reduce((acc, pago) => acc + Number(pago.importe || 0), 0) -
-    retiros.reduce((acc, retiro) => acc + Number(retiro.importe || 0), 0);
-  const proximoAcreditar = [...chequesPorAcreditar].sort((a, b) =>
-    String(a.fecha_pago).localeCompare(String(b.fecha_pago))
-  )[0];
-  const proyeccionLiquidez =
-    liquidezActual +
-    Number(proximoAcreditar?.total_cancelado || proximoAcreditar?.importe_pesos || 0);
-  const proyectadoFinMes =
-    liquidezActual +
-    chequesPorAcreditar
-      .filter((cobro) => cobro.fecha_pago && cobro.fecha_pago <= finMes)
+    retiros
+      .filter((retiro) => retiro.fecha <= hoyISO)
+      .reduce((acc, retiro) => acc + Number(retiro.importe || 0), 0);
+  const cobrosFuturosHasta = (limite: string) =>
+    cobrosConDinero
+      .filter((cobro) => {
+        const esCheque = (cobro.medio_cobro || "").toLowerCase().includes("cheque");
+        if (esCheque && chequesUsadosKeys.has(chequeKey(cobro))) return false;
+        const fechaEfectiva = esCheque
+          ? cobro.fecha_pago || cobro.fecha
+          : cobro.fecha;
+        return fechaEfectiva > hoyISO && fechaEfectiva <= limite;
+      })
       .reduce(
-        (acc, cobro) => acc + Number(cobro.total_cancelado || cobro.importe_pesos || 0),
+        (acc, cobro) =>
+          acc + Number(cobro.total_cancelado || cobro.importe_pesos || 0),
         0
       );
-  const pagosHastaMesProximo = pagos
-    .filter((pago) => {
-      const fechaPago = pago.fecha_pago || pago.fecha;
-      return fechaPago <= finMesProximo;
-    })
-    .reduce((acc, pago) => acc + Number(pago.importe || 0), 0);
+  const pagosFuturosHasta = (limite: string) =>
+    mediosPago
+      .filter((pago) => {
+        if (pago.cobro_origen_id) return false;
+        const esCheque = (pago.medio_pago || "").toLowerCase().includes("cheque");
+        const fechaEfectiva = esCheque ? pago.fecha_pago || pago.fecha : pago.fecha;
+        return fechaEfectiva > hoyISO && fechaEfectiva <= limite;
+      })
+      .reduce((acc, pago) => acc + Number(pago.importe || 0), 0);
+  const retirosFuturosHasta = (limite: string) =>
+    retiros
+      .filter((retiro) => retiro.fecha > hoyISO && retiro.fecha <= limite)
+      .reduce((acc, retiro) => acc + Number(retiro.importe || 0), 0);
+  const fechasMovimientosFuturos = [
+    ...cobrosConDinero
+      .filter((cobro) => {
+        const esCheque = (cobro.medio_cobro || "").toLowerCase().includes("cheque");
+        if (esCheque && chequesUsadosKeys.has(chequeKey(cobro))) return false;
+        return (esCheque ? cobro.fecha_pago || cobro.fecha : cobro.fecha) > hoyISO;
+      })
+      .map((cobro) =>
+        (cobro.medio_cobro || "").toLowerCase().includes("cheque")
+          ? cobro.fecha_pago || cobro.fecha
+          : cobro.fecha
+      ),
+    ...mediosPago
+      .filter((pago) => {
+        if (pago.cobro_origen_id) return false;
+        const esCheque = (pago.medio_pago || "").toLowerCase().includes("cheque");
+        return (esCheque ? pago.fecha_pago || pago.fecha : pago.fecha) > hoyISO;
+      })
+      .map((pago) =>
+        (pago.medio_pago || "").toLowerCase().includes("cheque")
+          ? pago.fecha_pago || pago.fecha
+          : pago.fecha
+      ),
+    ...retiros.filter((retiro) => retiro.fecha > hoyISO).map((retiro) => retiro.fecha),
+  ].sort();
+  const proximaFechaMovimiento = fechasMovimientosFuturos[0];
+  const proyeccionLiquidez = proximaFechaMovimiento
+    ? liquidezActual +
+      cobrosFuturosHasta(proximaFechaMovimiento) -
+      pagosFuturosHasta(proximaFechaMovimiento) -
+      retirosFuturosHasta(proximaFechaMovimiento)
+    : liquidezActual;
+  const proyectadoFinMes =
+    liquidezActual +
+    cobrosFuturosHasta(finMes) -
+    pagosFuturosHasta(finMes) -
+    retirosFuturosHasta(finMes);
+  const proyectadoMesProximo =
+    liquidezActual +
+    cobrosFuturosHasta(finMesProximo) -
+    pagosFuturosHasta(finMesProximo) -
+    retirosFuturosHasta(finMesProximo);
 
   const historial = [
     ...ventas.map((item) => ({
@@ -470,7 +592,7 @@ export default function DashboardPage() {
             <p className="text-sm text-zinc-500">Proyeccion de liquidez</p>
             <p className="metric-number">{money(proyeccionLiquidez)}</p>
             <p className="text-xs text-zinc-500">
-              {proximoAcreditar?.fecha_pago || "Sin cheques por acreditar"}
+              {proximaFechaMovimiento || "Sin movimientos futuros"}
             </p>
           </div>
           <div>
@@ -479,8 +601,8 @@ export default function DashboardPage() {
             <p className="text-xs text-zinc-500">Hasta {finMes}</p>
           </div>
           <div>
-            <p className="text-sm text-zinc-500">Pagos mes proximo</p>
-            <p className="metric-number">{money(pagosHastaMesProximo)}</p>
+            <p className="text-sm text-zinc-500">Proyectado mes proximo</p>
+            <p className="metric-number">{money(proyectadoMesProximo)}</p>
             <p className="text-xs text-zinc-500">Hasta {finMesProximo}</p>
           </div>
         </div>

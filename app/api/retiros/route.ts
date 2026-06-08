@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActorWithRoles, getSocioActor } from "@/lib/api-auth";
+import { getSocioActor } from "@/lib/api-auth";
 
 type RetiroBody = {
   id?: string;
@@ -12,7 +12,7 @@ type RetiroBody = {
 };
 
 export async function GET(request: Request) {
-  const auth = await getActorWithRoles(request, ["socio", "administracion"]);
+  const auth = await getSocioActor(request);
 
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

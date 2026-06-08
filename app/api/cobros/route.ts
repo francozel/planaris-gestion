@@ -51,6 +51,97 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
+  const cartera = searchParams.get("cartera") === "cheques-terceros";
+
+  if (cartera) {
+    const [{ data: cheques, error: chequesError }, { data: usados, error: usadosError }] =
+      await Promise.all([
+        auth.supabaseAdmin
+          .from("cobros")
+          .select(
+            "id, fecha, cliente, importe_pesos, banco, numero_cheque, fecha_emision, fecha_pago"
+          )
+          .ilike("medio_cobro", "%cheque%")
+          .order("id", { ascending: true }),
+        auth.supabaseAdmin
+          .from("ordenes_pago_medios")
+          .select("cobro_origen_id")
+          .not("cobro_origen_id", "is", null),
+      ]);
+
+    if (chequesError || usadosError) {
+      return NextResponse.json(
+        {
+          error:
+            usadosError?.message ||
+            chequesError?.message ||
+            "No se pudo cargar la cartera de cheques",
+        },
+        { status: 400 }
+      );
+    }
+
+    const usadosIds = new Set(
+      (usados || []).map((item) => item.cobro_origen_id).filter(Boolean)
+    );
+    const grupos = new Map<
+      string,
+      {
+        ids: string[];
+        id: string;
+        fecha: string;
+        cliente: string | null;
+        importe_pesos: number;
+        banco: string | null;
+        numero_cheque: string | null;
+        fecha_emision: string | null;
+        fecha_pago: string | null;
+      }
+    >();
+
+    for (const cheque of cheques || []) {
+      const clave = [
+        cheque.numero_cheque,
+        cheque.banco,
+        cheque.fecha_emision,
+        cheque.fecha_pago,
+        cheque.cliente,
+      ].join("|");
+      const grupo = grupos.get(clave);
+
+      if (grupo) {
+        grupo.ids.push(cheque.id);
+        grupo.importe_pesos += Number(cheque.importe_pesos || 0);
+      } else {
+        grupos.set(clave, {
+          ids: [cheque.id],
+          id: cheque.id,
+          fecha: cheque.fecha,
+          cliente: cheque.cliente,
+          importe_pesos: Number(cheque.importe_pesos || 0),
+          banco: cheque.banco,
+          numero_cheque: cheque.numero_cheque,
+          fecha_emision: cheque.fecha_emision,
+          fecha_pago: cheque.fecha_pago,
+        });
+      }
+    }
+
+    return NextResponse.json({
+      data: Array.from(grupos.values())
+        .filter((cheque) => !cheque.ids.some((chequeId) => usadosIds.has(chequeId)))
+        .map((cheque) => ({
+          id: cheque.id,
+          fecha: cheque.fecha,
+          cliente: cheque.cliente,
+          importe_pesos: cheque.importe_pesos,
+          banco: cheque.banco,
+          numero_cheque: cheque.numero_cheque,
+          fecha_emision: cheque.fecha_emision,
+          fecha_pago: cheque.fecha_pago,
+        })),
+    });
+  }
 
   const query = auth.supabaseAdmin
     .from("cobros")

@@ -13,6 +13,7 @@ type Imputacion = {
 type MedioPago = {
   medio_pago: string;
   importe: number;
+  cobro_origen_id?: string | null;
   banco?: string;
   numero_operacion?: string;
   numero_cheque?: string;
@@ -271,6 +272,67 @@ export async function POST(request: Request) {
     );
   }
 
+  const chequesTercerosSeleccionados = medios.filter(
+    (medio) =>
+      medio.medio_pago.toLowerCase() === "cheque de terceros" &&
+      medio.cobro_origen_id
+  );
+
+  if (
+    medios.some(
+      (medio) =>
+        medio.medio_pago.toLowerCase() === "cheque de terceros" &&
+        !medio.cobro_origen_id
+    )
+  ) {
+    return NextResponse.json(
+      { error: "Selecciona el cheque de terceros desde la cartera" },
+      { status: 400 }
+    );
+  }
+
+  if (chequesTercerosSeleccionados.length > 0) {
+    const ids = chequesTercerosSeleccionados.map(
+      (medio) => medio.cobro_origen_id as string
+    );
+    const [
+      { data: cobrosOrigen, error: cobrosOrigenError },
+      { data: mediosUsados, error: mediosUsadosError },
+    ] = await Promise.all([
+      auth.supabaseAdmin
+        .from("cobros")
+        .select("id")
+        .in("id", ids)
+        .ilike("medio_cobro", "%cheque%"),
+      auth.supabaseAdmin
+        .from("ordenes_pago_medios")
+        .select("cobro_origen_id")
+        .in("cobro_origen_id", ids),
+    ]);
+
+    if (cobrosOrigenError || mediosUsadosError) {
+      return NextResponse.json(
+        {
+          error:
+            cobrosOrigenError?.message ||
+            mediosUsadosError?.message ||
+            "No se pudo validar la cartera de cheques",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      (cobrosOrigen || []).length !== ids.length ||
+      (mediosUsados || []).length > 0
+    ) {
+      return NextResponse.json(
+        { error: "Uno de los cheques seleccionados ya no esta disponible" },
+        { status: 409 }
+      );
+    }
+  }
+
   const beneficiarios = Array.from(
     new Set(
       imputaciones
@@ -338,6 +400,7 @@ export async function POST(request: Request) {
             orden_pago_id: orden.id,
             medio_pago: medio.medio_pago,
             importe: Number(medio.importe || 0),
+            cobro_origen_id: medio.cobro_origen_id || null,
             banco: medio.banco?.trim() || "",
             numero_operacion: medio.numero_operacion?.trim() || "",
             numero_cheque: medio.numero_cheque?.trim() || "",

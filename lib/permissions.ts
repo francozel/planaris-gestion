@@ -1,4 +1,4 @@
-export type UserRole = "socio" | "administracion" | "usuario";
+export type UserRole = "socio" | "administracion" | "usuario" | "admin";
 
 export type AppRoute =
   | "/dashboard"
@@ -12,18 +12,21 @@ export type AppRoute =
   | "/proveedores"
   | "/bancos"
   | "/reportes"
-  | "/usuarios";
+  | "/usuarios"
+  | "/mi-cuenta";
 
 export const roleLabels: Record<UserRole, string> = {
   socio: "Socio",
   administracion: "Administracion",
   usuario: "Usuario",
+  admin: "Admin de usuarios",
 };
 
 export const roleDescriptions: Record<UserRole, string> = {
   socio: "Acceso completo",
   administracion: "Acceso completo con restriccion a retiros",
   usuario: "Solo acceso a gastos",
+  admin: "Solo gestion de usuarios y contrasenas",
 };
 
 const permissions: Record<UserRole, AppRoute[]> = {
@@ -40,6 +43,7 @@ const permissions: Record<UserRole, AppRoute[]> = {
     "/bancos",
     "/reportes",
     "/usuarios",
+    "/mi-cuenta",
   ],
   administracion: [
     "/dashboard",
@@ -53,16 +57,21 @@ const permissions: Record<UserRole, AppRoute[]> = {
     "/bancos",
     "/reportes",
     "/usuarios",
+    "/mi-cuenta",
   ],
-  usuario: ["/gastos"],
+  usuario: ["/gastos", "/mi-cuenta"],
+  admin: ["/usuarios"],
 };
 
 export function normalizeRole(role: string | null | undefined): UserRole {
-  if (role === "socio" || role === "administracion" || role === "usuario") {
+  if (
+    role === "socio" ||
+    role === "administracion" ||
+    role === "usuario" ||
+    role === "admin"
+  ) {
     return role;
   }
-
-  if (role === "admin") return "administracion";
 
   return "usuario";
 }
